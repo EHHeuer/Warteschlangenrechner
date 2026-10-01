@@ -22,6 +22,7 @@ const FIELDS = {
   setup: { label: 'Wechselzeit zwischen Fahrzeugen', min: 0, max: 6, step: 0.5, def: 1.5, show: v => `${fmt.n(v, 1)}<small>min</small>` },
   E:     { label: 'Ø Lademenge je Vorgang', min: 10, max: 90, step: 0.5, def: null, show: v => `${fmt.n(v, 1)}<small>kWh</small>` },
   Pv:    { label: 'Ø Ladeleistung der Fahrzeuge', min: 30, max: 250, step: 1, def: null, show: v => `${fmt.n(v)}<small>kW</small>` },
+  pmin:  { label: 'Mindestleistung der Fahrzeuge', min: 0, max: 80, step: 5, def: 40, show: v => v > 0 ? `${fmt.n(v)}<small>kW</small>` : 'keine' },
   ca:    { label: 'Streuung der Ankünfte (CV)', min: 0, max: 2, step: 0.05, def: 1, show: v => fmt.n(v, 2) },
   T:     { label: 'Kunden fahren weiter nach', min: 1, max: 30, step: 1, def: 10, show: v => `${fmt.n(v)}<small>min Warten</small>` },
   alpha: { label: 'Erlaubter Anteil, der weiterfährt', min: 0.005, max: 0.2, step: 0.005, def: 0.05, show: v => fmt.pct(v, 1) },
@@ -41,16 +42,19 @@ let simRes = {};     // Simulationsergebnis
 const cache = new Map();
 
 // ---------- Daten
-function dataFor(cls, year) {
-  const key = `${cls}-${year}`;
+function dataFor(cls, year, pmin = S.pmin) {
+  const key = `${cls}-${year}-${pmin}`;
   if (cache.has(key)) return cache.get(key);
   const c = D.classes.find(x => x.id === cls);
   const y = c.years[year] || c.years[latestYear(c)];
   const qe = M.quantileTable(y.kwh, D.edges.kwh);
-  const qp = M.quantileTable(y.kwavg, D.edges.kwavg, { geometric: true });
-  const rho = M.calibrateRho(qe, qp, y.h_mean);
+  const qpAll = M.quantileTable(y.kwavg, D.edges.kwavg, { geometric: true });
+  // Kopplung auf dem vollständigen Datensatz kalibrieren, danach langsame Vorgänge entfernen
+  const rho = M.calibrateRho(qe, qpAll, y.h_mean);
+  const { tab: qp, removed } = M.truncateTable(qpAll, pmin);
   const means = M.popMeans(M.makePopulation({ qe, qp, rho }));
-  const v = { cls: c, y, qe, qp, rho, means };
+  const meansAll = M.popMeans(M.makePopulation({ qe, qp: qpAll, rho }));
+  const v = { cls: c, y, qe, qp, rho, means, meansAll, removed, pmin };
   cache.set(key, v);
   return v;
 }
@@ -138,6 +142,7 @@ function setDefaults() {
 const round = (v, s) => Math.round(v / s) * s;
 
 function onParam(k) {
+  if (k === 'pmin') S.Pv = Math.round(dataFor(S.cls, S.year).means.p);
   if (k === 'ppark' && S.ppark > S.c * S.plp - FIELDS.ppark.step) S.ppark = UNLIMITED;
   syncControls();
   scheduleUpdate();
@@ -159,7 +164,10 @@ function syncControls() {
   // Datenwerte als Marke auf der Skala
   const d = dataFor(S.cls, S.year);
   markData('E', d.means.e, `Daten ${d.y === d.cls.years[S.year] ? S.year : ''}: ${fmt.n(d.means.e, 1)} kWh`);
-  markData('Pv', d.means.p, `Daten: ${fmt.n(d.means.p)} kW (Energie/Belegdauer)`);
+  markData('Pv', d.means.p, `Daten${S.pmin > 0 ? ` ab ${fmt.n(S.pmin)} kW` : ''}: ${fmt.n(d.means.p)} kW (Energie/Belegdauer)`);
+  $('#in-pmin').closest('.field').querySelector('.field__hint').innerHTML = `<span>${S.pmin > 0
+    ? `Langsamere Vorgänge werden entfernt: ${fmt.pct(d.removed, 1)} der Daten (Standzeit nach Ladeende, Plug-in-Hybride, gedrosselte Fahrzeuge).`
+    : 'Alle gemessenen Vorgänge, auch sehr langsame.'}</span>`;
   segSet('#seg-cls', S.cls); segSet('#seg-prof', S.prof); segSet('#seg-design', S.design);
   $('#sel-year').value = S.year;
   writeUrl();
@@ -211,7 +219,7 @@ function buildSegs() {
 }
 
 // ---------- URL
-const URL_KEYS = ['c', 'plp', 'ppark', 'A', 'setup', 'E', 'Pv', 'ca', 'T', 'alpha', 'cls', 'year', 'prof', 'design'];
+const URL_KEYS = ['c', 'plp', 'ppark', 'A', 'setup', 'E', 'Pv', 'pmin', 'ca', 'T', 'alpha', 'cls', 'year', 'prof', 'design'];
 function writeUrl() {
   const p = new URLSearchParams();
   for (const k of URL_KEYS) p.set(k, S[k]);
@@ -227,6 +235,12 @@ function readUrl() {
     else if (Number.isFinite(+v)) S[k] = +v;
   }
   if (!D.classes.some(c => c.id === S.cls)) S.cls = 5;
+  const cl = D.classes.find(c => c.id === S.cls);
+  if (!cl.years[S.year]) S.year = latestYear(cl);
+  // Fehlende Kundenwerte aus der verlinkten Datenbasis, nicht aus der Standardklasse
+  const d = dataFor(S.cls, S.year);
+  if (!p.has('E')) S.E = round(d.means.e, 0.5);
+  if (!p.has('Pv')) S.Pv = Math.round(d.means.p);
   for (const [k, f] of Object.entries(FIELDS)) if (k !== 'ppark') S[k] = Math.max(f.min, Math.min(f.max, S[k]));
   S.ppark = Math.max(50, S.ppark);
 }
@@ -439,7 +453,7 @@ function renderCustomers() {
   const s1 = css('--s1');
   hist($('#ch-e'), eA, { step: 2.5, max: 150, unit: 'kWh', color: s1, refs: [{ x: S.E, label: `Ø ${fmt.n(S.E, 1)}` }] });
   const capShare = pA.reduce((a, v) => a + (v > S.plp ? 1 : 0), 0) / N;
-  hist($('#ch-p'), pA, { step: 10, max: 420, unit: 'kW', color: s1, refs: [{ x: S.Pv, label: `Ø ${fmt.n(S.Pv)}` }, { x: S.plp, label: `Ladepunkt${capShare > 0.005 ? ` · ${fmt.pct(capShare, 0)} gedeckelt` : ''}`, anchor: 'end' }] });
+  hist($('#ch-p'), pA, { step: 10, max: 420, unit: 'kW', color: s1, refs: [{ x: S.Pv, label: `Ø ${fmt.n(S.Pv)}` }, ...(S.pmin > 0 ? [{ x: S.pmin * R.sP, label: `ab ${fmt.n(S.pmin * R.sP)}`, anchor: 'end' }] : []), { x: S.plp, label: `Ladepunkt${capShare > 0.005 ? ` · ${fmt.pct(capShare, 0)} gedeckelt` : ''}`, anchor: 'end' }] });
   const sMean = sA.reduce((a, b) => a + b, 0) / N;
   hist($('#ch-s'), sA, { step: 2, max: 120, unit: 'min', color: s1, refs: [{ x: sMean, label: `Ø ${fmt.n(sMean, 0)} min${R.capped && Number.isFinite(L) ? ' bei voller Belegung' : ''}` }] });
 }
@@ -717,7 +731,7 @@ function renderMethod() {
 
     <h3>Vorgehen</h3>
     <ol>
-      <li><b>Kunden aus Daten.</b> Lademenge und effektive Ladeleistung (Energie durch Belegdauer) stammen aus den Histogrammen der Klasse ${d.cls.label}, Jahr ${S.year} (${fmt.n(yd.n)} Ladevorgänge an ${fmt.n(yd.lps)} Ladepunkten). Beide Größen sind in den Daten nur einzeln verfügbar. Gekoppelt werden sie über eine Gauß-Copula mit ρ = ${fmt.n(d.rho, 2)}. ρ ist so kalibriert, dass die mittlere Belegdauer der Daten (${fmt.n(yd.h_mean * 60, 1)} min) getroffen wird. Größere Ladungen gehen damit eher mit höherer Leistung einher. Die Schieberegler skalieren die Verteilungen auf einen neuen Mittelwert, die Form bleibt.</li>
+      <li><b>Kunden aus Daten.</b> Lademenge und effektive Ladeleistung (Energie durch Belegdauer) stammen aus den Histogrammen der Klasse ${d.cls.label}, Jahr ${S.year} (${fmt.n(yd.n)} Ladevorgänge an ${fmt.n(yd.lps)} Ladepunkten). Beide Größen sind in den Daten nur einzeln verfügbar. Gekoppelt werden sie über eine Gauß-Copula mit ρ = ${fmt.n(d.rho, 2)}. ρ ist so kalibriert, dass die mittlere Belegdauer der Daten (${fmt.n(yd.h_mean * 60, 1)} min) getroffen wird.${S.pmin > 0 ? ` Danach werden Vorgänge mit weniger als ${fmt.n(S.pmin)} kW effektiver Leistung entfernt (${fmt.pct(d.removed, 1)}): Fahrzeuge, die über einen DC-Ladevorgang im Mittel darunter bleiben, sind am Markt kaum vertreten. Solche Werte entstehen in den Daten vor allem durch Standzeit nach Ladeende. Die mittlere Leistung steigt dadurch von ${fmt.n(d.meansAll.p, 1)} auf ${fmt.n(d.means.p, 1)} kW.` : ''} Größere Ladungen gehen damit eher mit höherer Leistung einher. Die Schieberegler skalieren die Verteilungen auf einen neuen Mittelwert, die Form bleibt.</li>
       <li><b>Bedienzeit je Belegung.</b> Ein Fahrzeug lädt mit min(eigene Leistung, Ladepunkt, Anteil am Netzanschluss). Sind n Ladepunkte belegt und reicht der Netzanschluss nicht, verteilt das Lastmanagement per Water-Filling: Langsame Fahrzeuge bekommen, was sie können, der Rest wird gleich auf die übrigen aufgeteilt.${R.capped && Number.isFinite(lvl) ? ` Bei voller Belegung liegt die Obergrenze je Fahrzeug aktuell bei ${fmt.n(lvl)} kW.` : ''} Nach dem Laden folgt die Wechselzeit, in der der Ladepunkt belegt bleibt, aber keine Energie liefert.</li>
       <li><b>Warteschlange.</b> Analytisch als M/M/c+D: Geburts-Todes-Prozess mit zustandsabhängiger Bedienrate μ<sub>n</sub> = n / E[S<sub>n</sub>] und fester Geduld T. Die Verteilung der Bedienzeit (Variationskoeffizient c<sub>S</sub>) und die Streuung der Ankünfte (c<sub>A</sub>) gehen über den Allen-Cunneen-Faktor ein: Wartezeiten skalieren mit (c<sub>A</sub>² + c<sub>S</sub>²)/2. Ausfälle werden als Mischung über die verfügbaren Ladepunkte k ~ Bin(c, A) gerechnet. Das ist dieselbe Modellfamilie wie im <a href="https://www.mathematik.tu-clausthal.de/studium/mathematik-interaktiv/warteschlangentheorie/warteschlangenrechner" target="_blank" rel="noopener">Warteschlangenrechner der TU Clausthal</a> (G/G/c mit c<sub>A</sub>, c<sub>S</sub> und Verfügbarkeit).</li>
       <li><b>Optimum.</b> Die Ankunftsrate λ* der Spitzenstunde wird per Bisektion gesucht, bis P(Warten &gt; T) = α.</li>

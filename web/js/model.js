@@ -32,6 +32,18 @@ export function quantileTable(counts, edges, { geometric = false, size = 2048 } 
   return tab;
 }
 
+// Bedingte Verteilung X | X ≥ lo: Werte unterhalb werden entfernt, nicht auf lo angehoben
+export function truncateTable(tab, lo) {
+  if (!(lo > tab[0])) return { tab, removed: 0 };
+  let a = 0, b = tab.length;
+  while (a < b) { const m = (a + b) >> 1; if (tab[m] < lo) a = m + 1; else b = m; }
+  const u0 = a / tab.length;
+  if (u0 >= 0.999) return { tab: tab.map(() => lo), removed: u0 };
+  const out = new Float64Array(tab.length);
+  for (let k = 0; k < tab.length; k++) out[k] = Math.max(lo, q(tab, u0 + (k + 0.5) / tab.length * (1 - u0)));
+  return { tab: out, removed: u0 };
+}
+
 export function q(tab, u) {
   const x = u * tab.length - 0.5;
   if (x <= 0) return tab[0];
