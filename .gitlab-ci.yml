@@ -1,0 +1,12 @@
+# GitLab Pages: veröffentlicht den statischen Ordner web/ aus dem Default-Branch
+pages:
+  image: alpine:latest
+  stage: deploy
+  script:
+    - test -s web/data/ladeprofil.json
+    - rm -rf public && cp -r web public
+  artifacts:
+    paths:
+      - public
+  rules:
+    - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH

@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Warteschlangenrechner · Schnellladepark</title>
+  <meta name="description" content="Interaktiver Warteschlangenrechner für Schnellladeparks: Wie viel Energie kann ein Park in der Spitzenstunde abgeben, bevor Kunden weiterfahren, und was ergibt das über Woche und Jahr. Verteilungen aus OBELISöffentlich.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2317202a'/%3E%3Cpath d='M7 22h18M9 22v-7h4v7M15 22V11h4v11M21 22v-4h3' stroke='%23f4f2ec' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="masthead">
+    <div class="wrap masthead__inner">
+      <a class="brand" href="#top">
+        <span class="brand__mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <span class="brand__name">Warteschlangenrechner</span>
+        <span class="brand__sub">Schnellladepark</span>
+      </a>
+      <nav class="nav" aria-label="Abschnitte">
+        <a href="#ergebnis">Ergebnis</a>
+        <a href="#live">Live</a>
+        <a href="#kante">Kipppunkt</a>
+        <a href="#woche">Woche</a>
+        <a href="#jahr">Jahr</a>
+        <a href="#kunden">Kunden</a>
+        <a href="#skalierung">Skalierung</a>
+        <a href="#methodik">Methodik</a>
+      </nav>
+      <button class="icon-btn" id="theme" type="button" aria-label="Farbschema wechseln" title="Hell / Dunkel">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 1.8a6.2 6.2 0 0 1 0 12.4z" fill="currentColor"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <section class="hero" id="top">
+    <div class="wrap hero__grid">
+      <div>
+        <p class="eyebrow">Kapazität · Spitzenstunde · Hochrechnung</p>
+        <h1 class="hero__title">Wie viel Energie gibt ein Ladepark ab, <em>bevor die Schlange kippt?</em></h1>
+        <p class="hero__lede">Der Rechner treibt die Nachfrage in der stärksten Stunde der Woche so weit hoch, bis gerade noch kaum jemand wegen Wartezeit weiterfährt. Von dort rechnet er mit dem gemessenen Wochenrhythmus deutscher Schnellladepunkte auf Woche und Jahr zurück.</p>
+      </div>
+      <figure class="hero__art" aria-hidden="true">
+        <svg viewBox="0 0 420 180" id="hero-art"></svg>
+      </figure>
+    </div>
+  </section>
+
+  <main class="wrap app" id="app">
+    <aside class="panel" aria-label="Rahmenparameter">
+      <div class="panel__inner">
+        <div class="panel__head">
+          <h2 class="panel__title">Rahmen</h2>
+          <button class="link-btn" id="reset" type="button">Zurücksetzen</button>
+        </div>
+
+        <fieldset class="group">
+          <legend>Park</legend>
+          <div class="field" data-key="c"></div>
+          <div class="field" data-key="plp"></div>
+          <div class="field" data-key="ppark"></div>
+          <div class="field" data-key="A"></div>
+          <div class="field" data-key="setup"></div>
+        </fieldset>
+
+        <fieldset class="group">
+          <legend>Kunden</legend>
+          <div class="field" data-key="E"></div>
+          <div class="field" data-key="Pv"></div>
+          <div class="field" data-key="ca"></div>
+        </fieldset>
+
+        <fieldset class="group">
+          <legend>Grenze ohne Churn</legend>
+          <div class="field" data-key="T"></div>
+          <div class="field" data-key="alpha"></div>
+        </fieldset>
+
+        <fieldset class="group">
+          <legend>Datenbasis</legend>
+          <div class="ctl">
+            <span class="ctl__label">Verteilung aus Ladepunkten</span>
+            <div class="seg" id="seg-cls" role="group" aria-label="Leistungsklasse der Verteilung"></div>
+          </div>
+          <div class="ctl ctl--row">
+            <label class="ctl__label" for="sel-year">Jahr</label>
+            <select id="sel-year" class="select"></select>
+          </div>
+          <div class="ctl">
+            <span class="ctl__label">Wochenrhythmus</span>
+            <div class="seg" id="seg-prof" role="group" aria-label="Wochenprofil"></div>
+          </div>
+          <div class="ctl">
+            <span class="ctl__label">Auslegen auf</span>
+            <div class="seg" id="seg-design" role="group" aria-label="Auslegung">
+              <button type="button" data-v="avg">Ø Woche</button>
+              <button type="button" data-v="peak">Spitzenmonat</button>
+            </div>
+          </div>
+        </fieldset>
+        <p class="panel__note" id="share-note">Die Einstellungen stehen in der Adresszeile und lassen sich als Link teilen.</p>
+      </div>
+    </aside>
+
+    <div class="results">
+      <!-- 01 Ergebnis -->
+      <section class="block" id="ergebnis">
+        <header class="block__head">
+          <span class="block__no">01</span>
+          <h2>Ergebnis</h2>
+        </header>
+        <p class="summary" id="summary"></p>
+        <div class="kpis" id="kpis"></div>
+      </section>
+
+      <!-- 02 Live -->
+      <section class="block" id="live">
+        <header class="block__head">
+          <span class="block__no">02</span>
+          <h2>Der Park in der Spitzenstunde</h2>
+          <p class="block__lede">Eine laufende Simulation mit der gefundenen Ankunftsrate. Jedes Fahrzeug bekommt Lademenge und Ladeleistung aus der Datenverteilung. Der Netzanschluss wird dynamisch aufgeteilt.</p>
+        </header>
+        <div class="card card--live">
+          <div class="live__bar">
+            <div class="seg seg--sm" id="seg-speed" role="group" aria-label="Geschwindigkeit">
+              <button type="button" data-v="1">1 min/s</button>
+              <button type="button" data-v="5">5 min/s</button>
+              <button type="button" data-v="20">20 min/s</button>
+            </div>
+            <div class="seg seg--sm" id="seg-load" role="group" aria-label="Nachfrage">
+              <button type="button" data-v="0.8">80 %</button>
+              <button type="button" data-v="1">100 %</button>
+              <button type="button" data-v="1.2">120 %</button>
+            </div>
+            <button class="icon-btn icon-btn--text" id="play" type="button" aria-pressed="true">Pause</button>
+          </div>
+          <div id="park" class="park"></div>
+          <div class="live__stats" id="live-stats"></div>
+        </div>
+      </section>
+
+      <!-- 03 Kante -->
+      <section class="block" id="kante">
+        <header class="block__head">
+          <span class="block__no">03</span>
+          <h2>Der Kipppunkt</h2>
+          <p class="block__lede">Mehr Ankünfte bringen anfangs fast linear mehr Energie. Ab einer Schwelle wachsen vor allem die Wartezeiten, und Kunden fahren weiter. Der Rechner legt die Spitzenstunde genau auf die Grenze, die du links setzt.</p>
+        </header>
+        <div class="grid-2">
+          <figure class="card">
+            <figcaption class="card__title">Anteil Kunden, die weiterfahren <span class="legend" id="leg-edge"></span></figcaption>
+            <div id="ch-churn" class="chart-box"></div>
+          </figure>
+          <figure class="card">
+            <figcaption class="card__title">Abgegebene Energie je Stunde</figcaption>
+            <div id="ch-thru" class="chart-box"></div>
+          </figure>
+        </div>
+        <p class="note" id="sim-note">Simulation läuft …</p>
+      </section>
+
+      <!-- 04 Woche -->
+      <section class="block" id="woche">
+        <header class="block__head">
+          <span class="block__no">04</span>
+          <h2>Zurückgerechnet auf die Woche</h2>
+          <p class="block__lede">Die Ankunftsrate jeder Stunde folgt dem Rhythmus der gemessenen Ladestarts. Die stärkste Stunde liegt auf der Grenze, alle anderen darunter.</p>
+        </header>
+        <figure class="card">
+          <figcaption class="card__title">Energie je Stunde der Woche <span class="legend" id="leg-week"></span>
+            <button class="link-btn link-btn--sm" data-table="week" type="button">Tabelle</button></figcaption>
+          <div id="ch-week" class="chart-box"></div>
+          <div class="table-box" id="tb-week" hidden></div>
+        </figure>
+        <figure class="card">
+          <figcaption class="card__title">Belegte Ladepunkte</figcaption>
+          <div id="ch-heat" class="chart-box"></div>
+          <div class="scale-key" id="heat-key"></div>
+        </figure>
+      </section>
+
+      <!-- 05 Jahr -->
+      <section class="block" id="jahr">
+        <header class="block__head">
+          <span class="block__no">05</span>
+          <h2>Und über das Jahr</h2>
+          <p class="block__lede">Ladevorgänge je Ladepunkt schwanken über die Monate. Wer auf die Durchschnittswoche auslegt, verliert in starken Monaten Kunden. Wer auf den Spitzenmonat auslegt, lässt im Rest des Jahres Kapazität frei.</p>
+        </header>
+        <figure class="card">
+          <figcaption class="card__title">Energie je Monat
+            <button class="link-btn link-btn--sm" data-table="year" type="button">Tabelle</button></figcaption>
+          <div id="ch-year" class="chart-box"></div>
+          <div class="table-box" id="tb-year" hidden></div>
+        </figure>
+      </section>
+
+      <!-- 06 Kunden -->
+      <section class="block" id="kunden">
+        <header class="block__head">
+          <span class="block__no">06</span>
+          <h2>Die Streuung der Kunden</h2>
+          <p class="block__lede">Die Formen stammen aus den Ladevorgängen der gewählten Klasse und des gewählten Jahres. Die Schieberegler verschieben nur den Mittelwert, die Streuung bleibt erhalten.</p>
+        </header>
+        <div class="grid-3">
+          <figure class="card"><figcaption class="card__title">Lademenge je Vorgang</figcaption><div id="ch-e" class="chart-box"></div></figure>
+          <figure class="card"><figcaption class="card__title">Ladeleistung des Fahrzeugs</figcaption><div id="ch-p" class="chart-box"></div></figure>
+          <figure class="card"><figcaption class="card__title">Belegdauer am Ladepunkt</figcaption><div id="ch-s" class="chart-box"></div></figure>
+        </div>
+      </section>
+
+      <!-- 07 Skalierung -->
+      <section class="block" id="skalierung">
+        <header class="block__head">
+          <span class="block__no">07</span>
+          <h2>Wie der Park skaliert</h2>
+          <p class="block__lede">Gleiche Kunden, gleiche Grenze, nur die Zahl der Ladepunkte ändert sich. Größere Parks puffern Zufall besser und kommen näher an ihre Kapazität. Der Netzanschluss setzt die Decke.</p>
+        </header>
+        <figure class="card">
+          <figcaption class="card__title">Energie je Woche nach Zahl der Ladepunkte <span class="legend" id="leg-scale"></span>
+            <button class="link-btn link-btn--sm" data-table="scale" type="button">Tabelle</button></figcaption>
+          <div id="ch-scale" class="chart-box"></div>
+          <div class="table-box" id="tb-scale" hidden></div>
+        </figure>
+      </section>
+
+      <!-- 08 Methodik -->
+      <section class="block block--prose" id="methodik">
+        <header class="block__head">
+          <span class="block__no">08</span>
+          <h2>Methodik, Annahmen, Grenzen</h2>
+        </header>
+        <div class="prose" id="method"></div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap foot__inner">
+      <p id="foot-source"></p>
+      <p>Rechenergebnisse sind Modellwerte, keine Prognose. Zahlen aus der Datenbasis sind gemessen, alle anderen sind einstellbare Annahmen.</p>
+    </div>
+  </footer>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
