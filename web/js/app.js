@@ -254,6 +254,7 @@ function scheduleUpdate() {
 function update() {
   compute();
   simRes = {};
+  renderPparkHint();
   renderSummary();
   renderDock();
   renderEdge();
@@ -299,6 +300,23 @@ function renderDock() {
   let d = $('#dock');
   if (!d) { d = document.createElement('a'); d.id = 'dock'; d.className = 'dock'; d.href = '#ergebnis'; document.body.appendChild(d); }
   d.innerHTML = `<span><small>Spitzenstunde</small><b>${fmt.n(R.peak.kwh)} kWh</b></span><span><small>Woche</small><b>${fmt.n(R.week.kwh / 1000, 1)} MWh</b></span><span><small>Jahr</small><b>${fmt.n(R.year.kwh / 1000, 0)} MWh</b></span><span><small>Je LP und Jahr</small><b>${fmt.n(R.year.kwh / 1000 / S.c, 1)} MWh</b></span>`;
+}
+// Hinweis unter dem Netzanschluss: was je Ladepunkt übrig bleibt
+function renderPparkHint() {
+  const box = $('#in-ppark').closest('.field').querySelector('.field__hint');
+  const { svc } = R;
+  if (!R.capped) {
+    box.innerHTML = `<span>Kein Engpass: Jeder Ladepunkt kann seine vollen ${fmt.n(S.plp)} kW abgeben.</span>`;
+    return;
+  }
+  const share = R.pEff / S.c;
+  let first = 0;
+  for (let n = 1; n <= S.c; n++) if (svc.capped[n]) { first = n; break; }
+  const L = svc.level[S.c];
+  const extra = first
+    ? ` Ab ${first} gleichzeitig ladenden Fahrzeugen wird gedrosselt. Bei voller Belegung bekommen schnelle Fahrzeuge bis zu ${fmt.n(L)} kW, weil langsame ihren Anteil nicht ausschöpfen.`
+    : ` Das reicht im Mittel auch bei voller Belegung, die Fahrzeuge ziehen im Schnitt ${fmt.n(svc.Ep)} kW.`;
+  box.innerHTML = `<span><b>${fmt.n(share)} kW je Ladepunkt</b>, wenn alle ${S.c} laden (${fmt.n(R.pEff)} kW ÷ ${S.c}).${extra}</span>`;
 }
 const kpi = (l, v, u, s) => `<div class="kpi"><p class="kpi__label">${l}</p><p class="kpi__value">${v}<span class="kpi__unit">${u}</span></p><p class="kpi__sub">${s}</p></div>`;
 
