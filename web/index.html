@@ -113,6 +113,8 @@
         </header>
         <p class="summary" id="summary"></p>
         <div class="kpis" id="kpis"></div>
+        <p class="kpis__caption">Je Ladepunkt</p>
+        <div class="kpis kpis--lp" id="kpis-lp"></div>
       </section>
 
       <!-- 02 Live -->
@@ -218,7 +220,8 @@
           <p class="block__lede">Gleiche Kunden, gleiche Grenze, nur die Zahl der Ladepunkte ändert sich. Größere Parks puffern Zufall besser und kommen näher an ihre Kapazität. Der Netzanschluss setzt die Decke.</p>
         </header>
         <figure class="card">
-          <figcaption class="card__title">Energie je Woche nach Zahl der Ladepunkte <span class="legend" id="leg-scale"></span>
+          <figcaption class="card__title"><span id="scale-title">Energie je Woche nach Zahl der Ladepunkte</span> <span class="legend" id="leg-scale"></span>
+            <span class="seg seg--sm" id="seg-scale" role="group" aria-label="Normierung"><button type="button" data-v="total">Gesamt</button><button type="button" data-v="lp">je Ladepunkt</button></span>
             <button class="link-btn link-btn--sm" data-table="scale" type="button">Tabelle</button></figcaption>
           <div id="ch-scale" class="chart-box"></div>
           <div class="table-box" id="tb-scale" hidden></div>

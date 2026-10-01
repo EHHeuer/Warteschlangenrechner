@@ -34,7 +34,7 @@ const HINTS = {
   T: 'Wer länger warten müsste, fährt weiter.',
 };
 
-const S = { cls: 5, year: null, prof: 5, design: 'avg' };
+const S = { cls: 5, year: null, prof: 5, design: 'avg', scaleMode: 'total' };
 let D;               // Datensatz
 let R = {};          // Rechenergebnis
 let simRes = {};     // Simulationsergebnis
@@ -200,6 +200,10 @@ function buildSegs() {
     const b = e.target.closest('button'); if (!b) return;
     S.prof = b.dataset.v === 'dc' ? 'dc' : +b.dataset.v; syncControls(); scheduleUpdate();
   });
+  $('#seg-scale').addEventListener('click', e => {
+    const b = e.target.closest('button'); if (!b) return;
+    S.scaleMode = b.dataset.v; segSet('#seg-scale', S.scaleMode); renderScale();
+  });
   $('#seg-design').addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
     S.design = b.dataset.v; syncControls(); scheduleUpdate();
@@ -245,6 +249,7 @@ function update() {
   renderScale();
   renderMethod();
   restartLive();
+  segSet('#seg-scale', S.scaleMode);
   clearTimeout(tSim);
   $('#sim-note').textContent = 'Simulation läuft …';
   tSim = setTimeout(runSim, 450);
@@ -265,13 +270,21 @@ function renderSummary() {
     kpi('Spitzenstunde', fmt.n(peak.kwh), 'kWh', `<b>${fmt.n(peak.served, 1)}</b> Ladevorgänge · Ø Warten <b>${fmt.n(peak.wq * 60, 1)} min</b> · ${netz}`),
     kpi(wkLabel, fmt.n(week.kwh / 1000, 1), 'MWh', `<b>${fmt.n(week.n)}</b> Ladevorgänge · ${fmt.pct(week.churn, 1)} fahren weiter`),
     kpi('Jahr', fmt.n(year.kwh / 1000, 0), 'MWh', `<b>${fmt.n(year.n)}</b> Ladevorgänge · ${fmt.pct(year.churn, 1)} fahren weiter`),
-    kpi('Je Ladepunkt', fmt.n(perLpDay, 0), 'kWh/Tag', `Belegt <b>${fmt.pct(busyWeek, 0)}</b> der Zeit · ${fmt.n(year.n / 365 / S.c, 1)} Vorgänge/Tag`),
+    kpi('Je Ladepunkt und Tag', fmt.n(perLpDay, 0), 'kWh', `Belegt <b>${fmt.pct(busyWeek, 0)}</b> der Zeit · ${fmt.n(year.n / 365 / S.c, 1)} Vorgänge/Tag`),
+  ].join('');
+  // Normiert auf einen Ladepunkt
+  const c = S.c;
+  $('#kpis-lp').innerHTML = [
+    kpi('Spitzenstunde', fmt.n(peak.kwh / c, 1), 'kWh', `${fmt.n(peak.served / c, 2)} Ladevorgänge · ${fmt.pct(peak.kwh / c / S.plp, 0)} der Ladepunktleistung`),
+    kpi(wkLabel, fmt.n(week.kwh / c, 0), 'kWh', `${fmt.n(week.n / c, 0)} Ladevorgänge`),
+    kpi('Jahr', fmt.n(year.kwh / c / 1000, 1), 'MWh', `${fmt.n(year.n / c, 0)} Ladevorgänge`),
+    kpi('Auslastung Nennleistung', fmt.pct(year.kwh / c / (S.plp * 8760), 1), '', `Energie im Jahr ÷ (${fmt.n(S.plp)} kW × 8.760 h)`),
   ].join('');
 }
 function renderDock() {
   let d = $('#dock');
   if (!d) { d = document.createElement('a'); d.id = 'dock'; d.className = 'dock'; d.href = '#ergebnis'; document.body.appendChild(d); }
-  d.innerHTML = `<span><small>Spitzenstunde</small><b>${fmt.n(R.peak.kwh)} kWh</b></span><span><small>Woche</small><b>${fmt.n(R.week.kwh / 1000, 1)} MWh</b></span><span><small>Jahr</small><b>${fmt.n(R.year.kwh / 1000, 0)} MWh</b></span>`;
+  d.innerHTML = `<span><small>Spitzenstunde</small><b>${fmt.n(R.peak.kwh)} kWh</b></span><span><small>Woche</small><b>${fmt.n(R.week.kwh / 1000, 1)} MWh</b></span><span><small>Jahr</small><b>${fmt.n(R.year.kwh / 1000, 0)} MWh</b></span><span><small>Je LP und Jahr</small><b>${fmt.n(R.year.kwh / 1000 / S.c, 1)} MWh</b></span>`;
 }
 const kpi = (l, v, u, s) => `<div class="kpi"><p class="kpi__label">${l}</p><p class="kpi__value">${v}<span class="kpi__unit">${u}</span></p><p class="kpi__sub">${s}</p></div>`;
 
@@ -349,6 +362,7 @@ function renderWeek() {
         const h = week.hours[i], s = simW?.[i];
         return `<div class="head">${hourLabel(i)}</div>
           <div class="row"><span>Energie</span><b>${fmt.n(h.kwh)} kWh</b></div>
+          <div class="row"><span>je Ladepunkt</span><b>${fmt.n(h.kwh / S.c, 1)} kWh</b></div>
           ${s ? `<div class="row"><span>Simulation</span><b>${fmt.n(s.kwh)} kWh</b></div>` : ''}
           <div class="row"><span>Ankünfte</span><b>${fmt.n(h.lambda, 1)}</b></div>
           <div class="row"><span>Weitergefahren</span><b>${fmt.pct(h.churn, 2)}</b></div>
@@ -366,8 +380,8 @@ function renderWeek() {
     tipHtml: (r, c) => { const h = week.hours[r * 24 + c]; return `<div class="head">${hourLabel(r * 24 + c)}</div><div class="row"><span>Belegt</span><b>${fmt.pct(h.busy / S.c, 0)}</b></div><div class="row"><span>Ladepunkte</span><b>${fmt.n(h.busy, 1)} von ${S.c}</b></div>`; },
   });
   $('#heat-key').innerHTML = `<span>0 %</span><span class="bar" style="background:linear-gradient(90deg, ${seq(0)}, ${seq(0.5)}, ${seq(1)})"></span><span>100 % der Ladepunkte belegt (inkl. Wechselzeit)</span>`;
-  tables.week = () => table(['Stunde', 'Ankünfte', 'Energie kWh', 'Weitergefahren', 'Belegt'],
-    week.hours.map((h, i) => [hourLabel(i), fmt.n(h.lambda, 2), fmt.n(h.kwh, 1), fmt.pct(h.churn, 2), fmt.n(h.busy, 2)]));
+  tables.week = () => table(['Stunde', 'Ankünfte', 'Energie kWh', 'kWh je LP', 'Weitergefahren', 'Belegt'],
+    week.hours.map((h, i) => [hourLabel(i), fmt.n(h.lambda, 2), fmt.n(h.kwh, 1), fmt.n(h.kwh / S.c, 1), fmt.pct(h.churn, 2), fmt.n(h.busy, 2)]));
   refreshTable('week');
 }
 
@@ -391,6 +405,7 @@ function renderYear() {
         const m = year.months[i];
         return `<div class="head">${MONTHS[i]} ${season.year}</div>
           <div class="row"><span>Energie</span><b>${fmt.n(m.kwh / 1000, 1)} MWh</b></div>
+          <div class="row"><span>je Ladepunkt</span><b>${fmt.n(m.kwh / S.c / 1000, 2)} MWh</b></div>
           <div class="row"><span>Nachfrage ggü. Auslegung</span><b>${fmt.pct(m.factor, 0)}</b></div>
           <div class="row"><span>Weitergefahren im Monat</span><b>${fmt.pct(m.churn, 2)}</b></div>
           <div class="row"><span>… in der Spitzenstunde</span><b>${fmt.pct(m.peakChurn, 1)}</b></div>`;
@@ -402,8 +417,8 @@ function renderYear() {
   cap.querySelector('.legend')?.remove();
   cap.insertAdjacentHTML('beforeend', `<span class="legend">${legendHtml}</span>`);
   cap.appendChild(cap.querySelector('.link-btn'));
-  tables.year = () => table(['Monat', 'Nachfrage ggü. Auslegung', 'Energie MWh', 'Ladevorgänge', 'Weitergefahren', 'Spitzenstunde'],
-    year.months.map((m, i) => [MONTHS[i], fmt.pct(m.factor, 0), fmt.n(m.kwh / 1000, 1), fmt.n(m.n), fmt.pct(m.churn, 2), fmt.pct(m.peakChurn, 1)]));
+  tables.year = () => table(['Monat', 'Nachfrage ggü. Auslegung', 'Energie MWh', 'MWh je LP', 'Ladevorgänge', 'Weitergefahren', 'Spitzenstunde'],
+    year.months.map((m, i) => [MONTHS[i], fmt.pct(m.factor, 0), fmt.n(m.kwh / 1000, 1), fmt.n(m.kwh / 1000 / S.c, 2), fmt.n(m.n), fmt.pct(m.churn, 2), fmt.pct(m.peakChurn, 1)]));
   refreshTable('year');
   void ref;
 }
@@ -450,21 +465,26 @@ function hist(box, arr, { step, max, unit, color, refs }) {
 function renderScale() {
   const { scale } = R;
   const capped = Number.isFinite(R.ppark);
+  const perLp = S.scaleMode === 'lp';
+  // Gesamt: MWh je Woche. Je Ladepunkt: kWh je Ladepunkt und Tag
+  const val = (kwh, c) => perLp ? kwh / 7 / c : kwh / 1000;
+  const unit = perLp ? 'kWh' : 'MWh';
+  $('#scale-title').textContent = perLp ? 'Energie je Ladepunkt und Tag nach Zahl der Ladepunkte' : 'Energie je Woche nach Zahl der Ladepunkte';
   const s1 = css('--s1'), s3 = css('--s3');
   $('#leg-scale').innerHTML = legend(capped
     ? [[`Netzanschluss ${fmt.n(R.ppark)} kW`, s1], ['ohne Engpass am Netz', s3]]
     : [['ohne Engpass am Netz', s1]]);
-  const yMax = Math.max(...scale.map(s => s.free)) / 1000 * 1.08;
+  const yMax = Math.max(...scale.map(s => val(s.free, s.c))) * 1.08;
   const cur = scale[S.c - 1];
   plot($('#ch-scale'), {
     height: 280, aria: 'Energie je Woche nach Ladepunktzahl',
     x: { domain: [1, C_MAX], label: 'Ladepunkte', ticks: [1, 5, 10, 15, 20, 25, 30, 35, 40] },
-    y: { domain: [0, yMax], fmt: v => fmt.n(v), label: 'MWh je Woche' },
+    y: { domain: [0, yMax], fmt: v => fmt.n(v), label: perLp ? 'kWh je Ladepunkt und Tag' : 'MWh je Woche' },
     layers: [
-      { type: 'vline', x: S.c, label: `${S.c} LP · ${fmt.n(cur.kwh / 1000, 1)} MWh`, anchor: S.c > 28 ? 'end' : 'start' },
-      ...(capped ? [{ type: 'line', data: scale.map(s => [s.c, s.free / 1000]), color: s3, width: 2 }] : []),
-      { type: 'line', data: scale.map(s => [s.c, s.kwh / 1000]), color: s1 },
-      { type: 'dots', data: [[S.c, cur.kwh / 1000]], color: s1, r: 5 },
+      { type: 'vline', x: S.c, label: `${S.c} LP · ${fmt.n(val(cur.kwh, cur.c), perLp ? 0 : 1)} ${unit}`, anchor: S.c > 28 ? 'end' : 'start', bottom: perLp },
+      ...(capped ? [{ type: 'line', data: scale.map(s => [s.c, val(s.free, s.c)]), color: s3, width: 2 }] : []),
+      { type: 'line', data: scale.map(s => [s.c, val(s.kwh, s.c)]), color: s1 },
+      { type: 'dots', data: [[S.c, val(cur.kwh, cur.c)]], color: s1, r: 5 },
     ],
     tip: {
       nearest: x => Math.max(0, Math.min(C_MAX - 1, Math.round(x) - 1)), xOf: i => i + 1,
@@ -472,6 +492,7 @@ function renderScale() {
         <div class="row"><span>Energie je Woche</span><b>${fmt.n(s.kwh / 1000, 1)} MWh</b></div>
         ${capped ? `<div class="row"><span>ohne Engpass am Netz</span><b>${fmt.n(s.free / 1000, 1)} MWh</b></div>` : ''}
         <div class="row"><span>je Ladepunkt und Tag</span><b>${fmt.n(s.kwh / 7 / s.c)} kWh</b></div>
+        <div class="row"><span>je Ladepunkt und Jahr (× 52,14)</span><b>${fmt.n(s.kwh * 365 / 7 / s.c / 1000, 1)} MWh</b></div>
         <div class="row"><span>Ankünfte Spitzenstunde</span><b>${fmt.n(s.lam, 1)}</b></div>`; },
     },
   });
