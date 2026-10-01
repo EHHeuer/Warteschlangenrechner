@@ -7,7 +7,6 @@ const DAYS_LONG = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'S
 const MONTHS = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
 const MDAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 const C_MAX = 40;
-const UNLIMITED = 1e6;
 const $ = s => document.querySelector(s);
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 const hourLabel = h => `${DAYS[Math.floor(h / 24)]} ${h % 24}–${(h % 24) + 1} Uhr`;
@@ -16,8 +15,8 @@ const hourLabel = h => `${DAYS[Math.floor(h / 24)]} ${h % 24}–${(h % 24) + 1} 
 const FIELDS = {
   c:     { label: 'Ladepunkte', min: 1, max: C_MAX, step: 1, def: 8, show: v => fmt.n(v) },
   plp:   { label: 'Leistung je Ladepunkt', min: 50, max: 400, step: 10, def: 300, show: v => `${fmt.n(v)}<small>kW</small>` },
-  ppark: { label: 'Netzanschluss des Parks', min: 50, max: 12000, step: 50, def: 1500,
-           show: v => v >= S.c * S.plp ? `${fmt.n(S.c * S.plp)}<small>kW · kein Engpass</small>` : `${fmt.n(v)}<small>kW</small>` },
+  ppark: { label: 'Netzanschluss des Parks', min: 100, max: 16000, step: 100, def: 1500,
+           show: v => `${fmt.n(v)}<small>kW${v >= S.c * S.plp ? ' · kein Engpass' : ''}</small>` },
   A:     { label: 'Verfügbarkeit je Ladepunkt', min: 0.9, max: 1, step: 0.005, def: 0.98, show: v => fmt.pct(v, 1) },
   setup: { label: 'Wechselzeit zwischen Fahrzeugen', min: 0, max: 6, step: 0.5, def: 1.5, show: v => `${fmt.n(v, 1)}<small>min</small>` },
   E:     { label: 'Ø Lademenge je Vorgang', min: 10, max: 90, step: 0.5, def: null, show: v => `${fmt.n(v, 1)}<small>kWh</small>` },
@@ -42,8 +41,8 @@ let simRes = {};     // Simulationsergebnis
 const cache = new Map();
 
 // ---------- Daten
-function dataFor(cls, year, pmin = S.pmin) {
-  const key = `${cls}-${year}-${pmin}`;
+function dataFor(cls, year) {
+  const key = `${cls}-${year}`;
   if (cache.has(key)) return cache.get(key);
   const c = D.classes.find(x => x.id === cls);
   const y = c.years[year] || c.years[latestYear(c)];
@@ -51,13 +50,12 @@ function dataFor(cls, year, pmin = S.pmin) {
   const qpAll = M.quantileTable(y.kwavg, D.edges.kwavg, { geometric: true });
   // Kopplung auf dem vollständigen Datensatz kalibrieren, danach langsame Vorgänge entfernen
   const rho = M.calibrateRho(qe, qpAll, y.h_mean);
-  const { tab: qp, removed } = M.truncateTable(qpAll, pmin);
-  const means = M.popMeans(M.makePopulation({ qe, qp, rho }));
-  const meansAll = M.popMeans(M.makePopulation({ qe, qp: qpAll, rho }));
-  const v = { cls: c, y, qe, qp, rho, means, meansAll, removed, pmin };
+  const v = { cls: c, y, qe, qpAll, rho, eMean: M.tabMean(qe), pMeanAll: M.tabMean(qpAll) };
   cache.set(key, v);
   return v;
 }
+// Mittelwert der Daten mit Untergrenze, ohne Skalierung (Marke und Startwert des Reglers)
+const dataPMean = (d, pmin) => M.tabMean(M.truncateTable(d.qpAll, pmin).tab);
 const latestYear = c => Object.keys(c.years).sort().pop();
 
 function profileFor(p) {
@@ -78,10 +76,13 @@ function seasonFor(cls, year) {
 // ---------- Rechnen
 function compute() {
   const d = dataFor(S.cls, S.year);
-  const sE = S.E / d.means.e, sP = S.Pv / d.means.p;
-  const pop = M.makePopulation({ qe: d.qe, qp: d.qp, rho: d.rho, sE, sP });
-  // Netzanschluss bleibt beim Ändern der Ladepunkte fest; UNLIMITED steht für "kein Engpass"
-  const ppark = S.ppark >= UNLIMITED ? Infinity : S.ppark;
+  const sE = S.E / d.eMean;
+  // Mindestleistung und Ø Leistung sind unabhängig: die Verteilung wird so skaliert, dass beides gilt
+  const fit = M.fitPower(d.qpAll, S.pmin, S.Pv);
+  const qp = fit.tab, sP = fit.s;
+  const pop = M.makePopulation({ qe: d.qe, qp, rho: d.rho, sE, sP });
+  // Der Netzanschluss ist ein eigener Wert; reicht er für alle Ladepunkte, gibt es keinen Engpass
+  const ppark = S.ppark;
   const capped = ppark < S.c * S.plp;
   const pEff = Math.min(ppark, S.c * S.plp);
   const setupH = S.setup / 60, T = S.T / 60, ca2 = S.ca * S.ca;
@@ -114,7 +115,7 @@ function compute() {
     scale.push({ c, kwh: M.evalWeek(lc, 1, prof.norm, Pc).kwh, free: M.evalWeek(lf, 1, prof.norm, Pf).kwh, lam: lc });
   }
 
-  R = { d, pop, sE, sP, svc, P, prof, season, ref, sMean, sMax, lam, peak, week, year, avgWeek, curve, lMax, scale, capped, ppark, pEff, setupH, T };
+  R = { d, pop, sE, sP, qp, fit, svc, P, prof, season, ref, sMean, sMax, lam, peak, week, year, avgWeek, curve, lMax, scale, capped, ppark, pEff, setupH, T };
 }
 
 // ---------- Steuerung
@@ -137,21 +138,16 @@ function setDefaults() {
   S.cls = 5; S.prof = 5; S.design = 'avg';
   S.year = latestYear(D.classes.find(c => c.id === 5));
   const d = dataFor(S.cls, S.year);
-  S.E = round(d.means.e, 0.5); S.Pv = Math.round(d.means.p);
+  S.E = round(d.eMean, 0.5); S.Pv = Math.round(dataPMean(d, S.pmin));
 }
 const round = (v, s) => Math.round(v / s) * s;
 
 function onParam(k) {
-  if (k === 'pmin') S.Pv = Math.round(dataFor(S.cls, S.year).means.p);
-  if (k === 'ppark' && S.ppark > S.c * S.plp - FIELDS.ppark.step) S.ppark = UNLIMITED;
   syncControls();
   scheduleUpdate();
 }
 
 function syncControls() {
-  const max = S.c * S.plp;
-  const pin = $('#in-ppark');
-  pin.max = max; pin.min = Math.min(50, max);
   for (const k of Object.keys(FIELDS)) {
     const inp = $(`#in-${k}`);
     inp.value = S[k];
@@ -163,10 +159,14 @@ function syncControls() {
   }
   // Datenwerte als Marke auf der Skala
   const d = dataFor(S.cls, S.year);
-  markData('E', d.means.e, `Daten ${d.y === d.cls.years[S.year] ? S.year : ''}: ${fmt.n(d.means.e, 1)} kWh`);
-  markData('Pv', d.means.p, `Daten${S.pmin > 0 ? ` ab ${fmt.n(S.pmin)} kW` : ''}: ${fmt.n(d.means.p)} kW (Energie/Belegdauer)`);
+  markData('E', d.eMean, `Daten ${S.year}: ${fmt.n(d.eMean, 1)} kWh`);
+  const pData = dataPMean(d, S.pmin);
+  markData('Pv', pData, `Daten ${S.year}${S.pmin > 0 ? ` ab ${fmt.n(S.pmin)} kW` : ''}: ${fmt.n(pData)} kW (Energie/Belegdauer)`);
+  const fit = M.fitPower(d.qpAll, S.pmin, S.Pv);
   $('#in-pmin').closest('.field').querySelector('.field__hint').innerHTML = `<span>${S.pmin > 0
-    ? `Langsamere Vorgänge werden entfernt: ${fmt.pct(d.removed, 1)} der Daten (Standzeit nach Ladeende, Plug-in-Hybride, gedrosselte Fahrzeuge).`
+    ? (fit.atFloor
+      ? `Die Ø Ladeleistung (${fmt.n(S.Pv)} kW) liegt ${S.Pv < S.pmin ? 'unter' : 'an'} der Mindestleistung. Gerechnet wird mit ${fmt.n(Math.max(S.Pv, S.pmin))} kW für alle Fahrzeuge.`
+      : `Langsamere Vorgänge werden entfernt: ${fmt.pct(fit.removed, 1)} der Verteilung (Standzeit nach Ladeende, Plug-in-Hybride, gedrosselte Fahrzeuge).`)
     : 'Alle gemessenen Vorgänge, auch sehr langsame.'}</span>`;
   segSet('#seg-cls', S.cls); segSet('#seg-prof', S.prof); segSet('#seg-design', S.design);
   $('#sel-year').value = S.year;
@@ -198,12 +198,11 @@ function buildSegs() {
     if (!c.years[S.year]) S.year = ys[0];
   };
   fillYears();
-  const resetCustomers = () => { const d = dataFor(S.cls, S.year); S.E = round(d.means.e, 0.5); S.Pv = Math.round(d.means.p); };
   $('#seg-cls').addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
-    S.cls = +b.dataset.v; fillYears(); resetCustomers(); syncControls(); scheduleUpdate();
+    S.cls = +b.dataset.v; fillYears(); syncControls(); scheduleUpdate();
   });
-  $('#sel-year').addEventListener('change', e => { S.year = e.target.value; resetCustomers(); syncControls(); scheduleUpdate(); });
+  $('#sel-year').addEventListener('change', e => { S.year = e.target.value; syncControls(); scheduleUpdate(); });
   $('#seg-prof').addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
     S.prof = b.dataset.v === 'dc' ? 'dc' : +b.dataset.v; syncControls(); scheduleUpdate();
@@ -239,10 +238,9 @@ function readUrl() {
   if (!cl.years[S.year]) S.year = latestYear(cl);
   // Fehlende Kundenwerte aus der verlinkten Datenbasis, nicht aus der Standardklasse
   const d = dataFor(S.cls, S.year);
-  if (!p.has('E')) S.E = round(d.means.e, 0.5);
-  if (!p.has('Pv')) S.Pv = Math.round(d.means.p);
-  for (const [k, f] of Object.entries(FIELDS)) if (k !== 'ppark') S[k] = Math.max(f.min, Math.min(f.max, S[k]));
-  S.ppark = Math.max(50, S.ppark);
+  if (!p.has('E')) S.E = round(d.eMean, 0.5);
+  if (!p.has('Pv')) S.Pv = Math.round(dataPMean(d, S.pmin));
+  for (const [k, f] of Object.entries(FIELDS)) S[k] = Math.max(f.min, Math.min(f.max, S[k]));
 }
 
 // ---------- Aktualisieren
@@ -465,13 +463,13 @@ function renderCustomers() {
   for (let i = 0; i < N; i++) {
     const z1 = gauss(r), z2 = gauss(r);
     eA[i] = M.q(d.qe, M.phi(z1)) * sE;
-    pA[i] = M.q(d.qp, M.phi(d.rho * z1 + r2 * z2)) * sP;
+    pA[i] = M.q(R.qp, M.phi(d.rho * z1 + r2 * z2)) * sP;
     sA[i] = (eA[i] / Math.min(pA[i], S.plp, L) + R.setupH) * 60;
   }
   const s1 = css('--s1');
   hist($('#ch-e'), eA, { step: 2.5, max: 150, unit: 'kWh', color: s1, refs: [{ x: S.E, label: `Ø ${fmt.n(S.E, 1)}` }] });
   const capShare = pA.reduce((a, v) => a + (v > S.plp ? 1 : 0), 0) / N;
-  hist($('#ch-p'), pA, { step: 10, max: 420, unit: 'kW', color: s1, refs: [{ x: S.Pv, label: `Ø ${fmt.n(S.Pv)}` }, ...(S.pmin > 0 ? [{ x: S.pmin * R.sP, label: `ab ${fmt.n(S.pmin * R.sP)}`, anchor: 'end' }] : []), { x: S.plp, label: `Ladepunkt${capShare > 0.005 ? ` · ${fmt.pct(capShare, 0)} gedeckelt` : ''}`, anchor: 'end' }] });
+  hist($('#ch-p'), pA, { step: 10, max: 420, unit: 'kW', color: s1, refs: [{ x: S.Pv, label: `Ø ${fmt.n(S.Pv)}` }, ...(S.pmin > 0 ? [{ x: S.pmin, label: `ab ${fmt.n(S.pmin)}`, anchor: 'end' }] : []), { x: S.plp, label: `Ladepunkt${capShare > 0.005 ? ` · ${fmt.pct(capShare, 0)} gedeckelt` : ''}`, anchor: 'end' }] });
   const sMean = sA.reduce((a, b) => a + b, 0) / N;
   hist($('#ch-s'), sA, { step: 2, max: 120, unit: 'min', color: s1, refs: [{ x: sMean, label: `Ø ${fmt.n(sMean, 0)} min${R.capped && Number.isFinite(L) ? ' bei voller Belegung' : ''}` }] });
 }
@@ -551,7 +549,7 @@ document.addEventListener('click', e => {
 let worker, jobId = 0;
 function simBase() {
   const d = R.d;
-  return { c: S.c, plp: S.plp, ppark: R.ppark, setupH: R.setupH, A: S.A, mdtH: 4, T: R.T, ca: S.ca, qe: d.qe, qp: d.qp, rho: d.rho, sE: R.sE, sP: R.sP };
+  return { c: S.c, plp: S.plp, ppark: R.ppark, setupH: R.setupH, A: S.A, mdtH: 4, T: R.T, ca: S.ca, qe: d.qe, qp: R.qp, rho: d.rho, sE: R.sE, sP: R.sP };
 }
 function runSim() {
   if (worker) worker.terminate();
@@ -749,7 +747,7 @@ function renderMethod() {
 
     <h3>Vorgehen</h3>
     <ol>
-      <li><b>Kunden aus Daten.</b> Lademenge und effektive Ladeleistung (Energie durch Belegdauer) stammen aus den Histogrammen der Klasse ${d.cls.label}, Jahr ${S.year} (${fmt.n(yd.n)} Ladevorgänge an ${fmt.n(yd.lps)} Ladepunkten). Beide Größen sind in den Daten nur einzeln verfügbar. Gekoppelt werden sie über eine Gauß-Copula mit ρ = ${fmt.n(d.rho, 2)}. ρ ist so kalibriert, dass die mittlere Belegdauer der Daten (${fmt.n(yd.h_mean * 60, 1)} min) getroffen wird.${S.pmin > 0 ? ` Danach werden Vorgänge mit weniger als ${fmt.n(S.pmin)} kW effektiver Leistung entfernt (${fmt.pct(d.removed, 1)}): Fahrzeuge, die über einen DC-Ladevorgang im Mittel darunter bleiben, sind am Markt kaum vertreten. Solche Werte entstehen in den Daten vor allem durch Standzeit nach Ladeende. Die mittlere Leistung steigt dadurch von ${fmt.n(d.meansAll.p, 1)} auf ${fmt.n(d.means.p, 1)} kW.` : ''} Größere Ladungen gehen damit eher mit höherer Leistung einher. Die Schieberegler skalieren die Verteilungen auf einen neuen Mittelwert, die Form bleibt.</li>
+      <li><b>Kunden aus Daten.</b> Lademenge und effektive Ladeleistung (Energie durch Belegdauer) stammen aus den Histogrammen der Klasse ${d.cls.label}, Jahr ${S.year} (${fmt.n(yd.n)} Ladevorgänge an ${fmt.n(yd.lps)} Ladepunkten). Beide Größen sind in den Daten nur einzeln verfügbar. Gekoppelt werden sie über eine Gauß-Copula mit ρ = ${fmt.n(d.rho, 2)}. ρ ist so kalibriert, dass die mittlere Belegdauer der Daten (${fmt.n(yd.h_mean * 60, 1)} min) getroffen wird.${S.pmin > 0 ? ` Danach werden Vorgänge mit weniger als ${fmt.n(S.pmin)} kW effektiver Leistung entfernt (aktuell ${fmt.pct(R.fit.removed, 1)} der Verteilung): Fahrzeuge, die über einen DC-Ladevorgang im Mittel darunter bleiben, sind am Markt kaum vertreten. Solche Werte entstehen in den Daten vor allem durch Standzeit nach Ladeende. In den Daten liegt die mittlere Leistung ohne Untergrenze bei ${fmt.n(d.pMeanAll, 1)} kW, ab ${fmt.n(S.pmin)} kW bei ${fmt.n(dataPMean(d, S.pmin), 1)} kW.` : ''} Größere Ladungen gehen damit eher mit höherer Leistung einher. Die Schieberegler sind unabhängig voneinander: Die Lademenge wird auf ihren Mittelwert skaliert. Die Leistungsverteilung wird so skaliert und abgeschnitten, dass Ø Ladeleistung und Mindestleistung gleichzeitig gelten. Ein Wechsel von Klasse oder Jahr ändert nur die Form der Verteilungen, nicht die eingestellten Mittelwerte.</li>
       <li><b>Bedienzeit je Belegung.</b> Ein Fahrzeug lädt mit min(eigene Leistung, Ladepunkt, Anteil am Netzanschluss). Sind n Ladepunkte belegt und reicht der Netzanschluss nicht, verteilt das Lastmanagement per Water-Filling: Langsame Fahrzeuge bekommen, was sie können, der Rest wird gleich auf die übrigen aufgeteilt.${R.capped && Number.isFinite(lvl) ? ` Bei voller Belegung liegt die Obergrenze je Fahrzeug aktuell bei ${fmt.n(lvl)} kW.` : ''} Nach dem Laden folgt die Wechselzeit, in der der Ladepunkt belegt bleibt, aber keine Energie liefert.</li>
       <li><b>Warteschlange.</b> Analytisch als M/M/c+D: Geburts-Todes-Prozess mit zustandsabhängiger Bedienrate μ<sub>n</sub> = n / E[S<sub>n</sub>] und fester Geduld T. Die Verteilung der Bedienzeit (Variationskoeffizient c<sub>S</sub>) und die Streuung der Ankünfte (c<sub>A</sub>) gehen über den Allen-Cunneen-Faktor ein: Wartezeiten skalieren mit (c<sub>A</sub>² + c<sub>S</sub>²)/2. Ausfälle werden als Mischung über die verfügbaren Ladepunkte k ~ Bin(c, A) gerechnet. Das ist dieselbe Modellfamilie wie im <a href="https://www.mathematik.tu-clausthal.de/studium/mathematik-interaktiv/warteschlangentheorie/warteschlangenrechner" target="_blank" rel="noopener">Warteschlangenrechner der TU Clausthal</a> (G/G/c mit c<sub>A</sub>, c<sub>S</sub> und Verfügbarkeit).</li>
       <li><b>Optimum.</b> Die Ankunftsrate λ* der Spitzenstunde wird per Bisektion gesucht, bis P(Warten &gt; T) = α.</li>

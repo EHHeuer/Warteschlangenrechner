@@ -44,6 +44,19 @@ export function truncateTable(tab, lo) {
   return { tab: out, removed: u0 };
 }
 
+export const tabMean = tab => tab.reduce((a, b) => a + b, 0) / tab.length;
+
+// Leistungsverteilung mit Untergrenze und vorgegebenem Mittelwert:
+// Skalierung s so, dass s · Mittel(Daten | Daten ≥ pmin/s) = Ziel. Beide Vorgaben bleiben unabhängig.
+export function fitPower(tabAll, pmin, target) {
+  const f = s => { const t = truncateTable(tabAll, pmin / s); return { s, ...t, mean: s * tabMean(t.tab) }; };
+  if (!(pmin > 0)) return f(target / tabMean(tabAll));
+  let a = 1e-3, b = 50;
+  for (let it = 0; it < 50; it++) { const m = Math.sqrt(a * b); if (f(m).mean > target) b = m; else a = m; }
+  const r = f(Math.sqrt(a * b));
+  return { ...r, atFloor: target <= pmin * 1.02 };
+}
+
 export function q(tab, u) {
   const x = u * tab.length - 0.5;
   if (x <= 0) return tab[0];
