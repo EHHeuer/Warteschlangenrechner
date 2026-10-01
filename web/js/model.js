@@ -217,28 +217,50 @@ export function findLambda(P, alpha) {
 // ---------- Hochrechnung auf Woche und Jahr
 // profile: 168 Gewichte (Mo 0 Uhr bis So 23 Uhr), normiert auf Maximum 1.
 // Jede Stunde wird als eingeschwungen betrachtet (punktweise stationäre Näherung).
-export function evalWeek(lambdaPeak, factor, profile, P) {
+export function evalWeek(lambdaPeak, factor, profile, P, price) {
   const hours = new Array(168);
-  let kwh = 0, n = 0, lost = 0, demand = 0;
+  let kwh = 0, n = 0, lost = 0, demand = 0, rev = 0;
   for (let h = 0; h < 168; h++) {
     const lam = lambdaPeak * factor * profile[h];
     const r = evalHour(lam, P);
     hours[h] = r;
     kwh += r.kwh; n += r.served; lost += lam * r.churn; demand += lam;
+    if (price) rev += r.kwh * price[h];
   }
-  return { hours, kwh, n, lost, demand, churn: demand > 0 ? lost / demand : 0 };
+  return { hours, kwh, n, lost, demand, rev, churn: demand > 0 ? lost / demand : 0 };
+}
+
+// Dynamische Preise: In den nPeak stärksten Stunden jedes Tages weicht der Anteil shift in die
+// nLow schwächsten Stunden desselben Tages aus (verteilt nach Abstand zum Tagesmaximum),
+// der Anteil loss geht verloren. tier: 1 = Aufschlag, -1 = Rabatt, 0 = Grundpreis.
+export function shiftProfile(raw, { nPeak, nLow, shift, loss }) {
+  const out = raw.slice(), tier = new Array(168).fill(0);
+  let moved = 0, lostDemand = 0;
+  for (let d = 0; d < 7; d++) {
+    const idx = Array.from({ length: 24 }, (_, h) => d * 24 + h).sort((a, b) => raw[b] - raw[a]);
+    const peak = idx.slice(0, nPeak), low = idx.slice(24 - Math.min(nLow, 24 - nPeak));
+    const dayMax = raw[idx[0]];
+    let mv = 0;
+    for (const h of peak) { tier[h] = 1; mv += raw[h] * shift; lostDemand += raw[h] * loss; out[h] = raw[h] * (1 - shift - loss); }
+    const room = low.map(h => Math.max(dayMax - raw[h], 0));
+    const sum = room.reduce((a, b) => a + b, 0);
+    low.forEach((h, i) => { tier[h] = -1; out[h] += mv * (sum > 0 ? room[i] / sum : 1 / low.length); });
+    moved += mv;
+  }
+  return { raw: out, tier, moved, lostDemand };
 }
 
 const DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
-export function evalYear(lambdaPeak, season, ref, profile, P) {
+export function evalYear(lambdaPeak, season, ref, profile, P, price) {
   // season: 12 Monatsindizes (Ladevorgänge je Ladepunkt und Tag), ref: Bezugswert der Auslegung
   const months = season.map((s, m) => {
-    const wk = evalWeek(lambdaPeak, s / ref, profile, P);
+    const wk = evalWeek(lambdaPeak, s / ref, profile, P, price);
     const weeks = DAYS[m] / 7;
-    return { m, factor: s / ref, kwh: wk.kwh * weeks, n: wk.n * weeks, lost: wk.lost * weeks, churn: wk.churn, peakChurn: Math.max(...wk.hours.map(h => h.churn)) };
+    return { m, factor: s / ref, rev: wk.rev * weeks, kwh: wk.kwh * weeks, n: wk.n * weeks, lost: wk.lost * weeks, churn: wk.churn, peakChurn: Math.max(...wk.hours.map(h => h.churn)) };
   });
   const kwh = months.reduce((a, b) => a + b.kwh, 0);
   const n = months.reduce((a, b) => a + b.n, 0);
   const lost = months.reduce((a, b) => a + b.lost, 0);
-  return { months, kwh, n, lost, churn: lost / (n + lost) };
+  const rev = months.reduce((a, b) => a + b.rev, 0);
+  return { months, kwh, n, lost, rev, churn: lost / (n + lost) };
 }

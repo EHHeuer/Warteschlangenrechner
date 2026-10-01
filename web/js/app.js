@@ -23,6 +23,13 @@ const FIELDS = {
   Pv:    { label: 'Ø Ladeleistung der Fahrzeuge', min: 30, max: 250, step: 1, def: null, show: v => `${fmt.n(v)}<small>kW</small>` },
   pmin:  { label: 'Mindestleistung der Fahrzeuge', min: 0, max: 80, step: 5, def: 40, show: v => v > 0 ? `${fmt.n(v)}<small>kW</small>` : 'keine' },
   ca:    { label: 'Streuung der Ankünfte (CV)', min: 0, max: 2, step: 0.05, def: 1, show: v => fmt.n(v, 2) },
+  dynN:     { label: 'Hochpreis-Stunden je Tag', min: 1, max: 8, step: 1, def: 3, show: v => `${fmt.n(v)}<small>h</small>` },
+  dynLow:   { label: 'Rabatt-Stunden je Tag', min: 1, max: 16, step: 1, def: 6, show: v => `${fmt.n(v)}<small>h</small>` },
+  dynShift: { label: 'Weichen in Rabatt-Stunden aus', min: 0, max: 0.8, step: 0.05, def: 0.25, show: v => fmt.pct(v, 0) },
+  dynLoss:  { label: 'Laden wegen des Preises nicht', min: 0, max: 0.5, step: 0.05, def: 0, show: v => fmt.pct(v, 0) },
+  price:    { label: 'Grundpreis', min: 20, max: 99, step: 1, def: 57, show: v => `${fmt.n(v)}<small>ct/kWh</small>` },
+  dynUp:    { label: 'Aufschlag in Hochpreis-Stunden', min: 0, max: 40, step: 1, def: 10, show: v => `+${fmt.n(v)}<small>ct/kWh</small>` },
+  dynDown:  { label: 'Rabatt in Rabatt-Stunden', min: 0, max: 30, step: 1, def: 10, show: v => `−${fmt.n(v)}<small>ct/kWh</small>` },
   T:     { label: 'Kunden fahren weiter nach', min: 1, max: 30, step: 1, def: 10, show: v => `${fmt.n(v)}<small>min Warten</small>` },
   alpha: { label: 'Erlaubter Anteil, der weiterfährt', min: 0.005, max: 0.2, step: 0.005, def: 0.05, show: v => fmt.pct(v, 1) },
 };
@@ -32,9 +39,13 @@ const HINTS = {
   setup: 'Ausparken, Einparken, Stecken, Freischalten.',
   ca: '1 = rein zufällige Ankünfte (Poisson), 0 = gleichmäßiger Takt, > 1 = Pulks.',
   T: 'Wer länger warten müsste, fährt weiter.',
+  dynN: 'Die Stunden mit den meisten Ladestarts, je Wochentag.',
+  dynLow: 'Die schwächsten Stunden desselben Tages.',
+  dynShift: 'Anteil der Kunden in Hochpreis-Stunden. Verteilt nach freier Kapazität: Je schwächer die Stunde, desto mehr.',
+  dynLoss: 'Anteil der Kunden in Hochpreis-Stunden, der ganz wegbleibt.',
 };
 
-const S = { cls: 5, year: null, prof: 5, design: 'avg', scaleMode: 'total' };
+const S = { cls: 5, year: null, prof: 5, design: 'avg', scaleMode: 'total', dyn: false };
 let D;               // Datensatz
 let R = {};          // Rechenergebnis
 let simRes = {};     // Simulationsergebnis
@@ -89,7 +100,17 @@ function compute() {
   const svc = M.buildService(pop, { plp: S.plp, ppark, setupH, cMax: C_MAX });
   const svcFree = M.buildService(pop, { plp: S.plp, ppark: Infinity, setupH, cMax: C_MAX });
   const P = { c: S.c, A: S.A, svc, T, ca2 };
-  const prof = profileFor(S.prof);
+  const prof0 = profileFor(S.prof);
+  // Dynamische Preise (Opt-in): Nachfrage verschiebt sich innerhalb des Tages
+  let prof = prof0, dyn = null;
+  if (S.dyn) {
+    const loss = Math.min(S.dynLoss, 1 - S.dynShift);
+    const sh = M.shiftProfile(prof0.raw, { nPeak: S.dynN, nLow: S.dynLow, shift: S.dynShift, loss });
+    const mx = Math.max(...sh.raw);
+    prof = { raw: sh.raw, norm: sh.raw.map(v => v / mx), peakIdx: sh.raw.indexOf(mx), peakToAvg: mx / (sh.raw.reduce((a, b) => a + b, 0) / 168) };
+    const price = sh.tier.map(t => (S.price + (t > 0 ? S.dynUp : t < 0 ? -S.dynDown : 0)) / 100);
+    dyn = { sh, mx, loss, price, flat: new Array(168).fill(S.price / 100) };
+  }
   const season = seasonFor(S.cls, S.year);
   const wts = season.s.map((v, m) => v * MDAYS[m]);
   const sMean = wts.reduce((a, b) => a + b, 0) / 365;
@@ -98,8 +119,17 @@ function compute() {
 
   const lam = M.findLambda(P, S.alpha);
   const peak = M.evalHour(lam, P);
-  const week = M.evalWeek(lam, 1, prof.norm, P);
-  const year = M.evalYear(lam, season.s, ref, prof.norm, P);
+  const week = M.evalWeek(lam, 1, prof.norm, P, dyn?.price);
+  const year = M.evalYear(lam, season.s, ref, prof.norm, P, dyn?.price);
+  if (dyn) {
+    // Vergleich: gleicher Park, gleiche Grenze, Einheitspreis
+    dyn.week0 = M.evalWeek(lam, 1, prof0.norm, P, dyn.flat);
+    dyn.year0 = M.evalYear(lam, season.s, ref, prof0.norm, P, dyn.flat);
+    dyn.movedWeek = lam * dyn.sh.moved / dyn.mx;          // Kunden je Woche, die ausweichen
+    dyn.lostWeek = lam * dyn.sh.lostDemand / dyn.mx;      // Kunden je Woche, die wegbleiben
+    dyn.peak0 = M.evalHour(lam, P);
+    dyn.prof0 = prof0;
+  }
   const avgWeek = M.evalWeek(lam, sMean / ref, prof.norm, P);
 
   // Kurve über die Ankunftsrate
@@ -115,7 +145,7 @@ function compute() {
     scale.push({ c, kwh: M.evalWeek(lc, 1, prof.norm, Pc).kwh, free: M.evalWeek(lf, 1, prof.norm, Pf).kwh, lam: lc });
   }
 
-  R = { d, pop, sE, sP, qp, fit, svc, P, prof, season, ref, sMean, sMax, lam, peak, week, year, avgWeek, curve, lMax, scale, capped, ppark, pEff, setupH, T };
+  R = { d, pop, sE, sP, qp, fit, svc, P, prof, dyn, season, ref, sMean, sMax, lam, peak, week, year, avgWeek, curve, lMax, scale, capped, ppark, pEff, setupH, T };
 }
 
 // ---------- Steuerung
@@ -135,7 +165,8 @@ function buildFields() {
 
 function setDefaults() {
   for (const [k, f] of Object.entries(FIELDS)) if (f.def != null) S[k] = f.def;
-  S.cls = 5; S.prof = 5; S.design = 'avg';
+  S.cls = 5; S.prof = 5; S.design = 'avg'; S.dyn = false;
+  if (D.prices_dc) S.price = Math.round(D.prices_dc.q[2]);
   S.year = latestYear(D.classes.find(c => c.id === 5));
   const d = dataFor(S.cls, S.year);
   S.E = round(d.eMean, 0.5); S.Pv = Math.round(dataPMean(d, S.pmin));
@@ -168,6 +199,9 @@ function syncControls() {
       ? `Die Ø Ladeleistung (${fmt.n(S.Pv)} kW) liegt ${S.Pv < S.pmin ? 'unter' : 'an'} der Mindestleistung. Gerechnet wird mit ${fmt.n(Math.max(S.Pv, S.pmin))} kW für alle Fahrzeuge.`
       : `Langsamere Vorgänge werden entfernt: ${fmt.pct(fit.removed, 1)} der Verteilung (Standzeit nach Ladeende, Plug-in-Hybride, gedrosselte Fahrzeuge).`)
     : 'Alle gemessenen Vorgänge, auch sehr langsame.'}</span>`;
+  $('#in-dyn').checked = S.dyn;
+  $('#dyn-body').hidden = !S.dyn;
+  if (D.prices_dc) { const q = D.prices_dc.q; $('#in-price').closest('.field').querySelector('.field__hint').innerHTML = `<span>Ad-hoc-Preise an DC-Ladepunkten (OBELIS, brutto): Median ${fmt.n(q[2])} ct, P25–P75 ${fmt.n(q[1])}–${fmt.n(q[3])} ct.</span>`; }
   segSet('#seg-cls', S.cls); segSet('#seg-prof', S.prof); segSet('#seg-design', S.design);
   $('#sel-year').value = S.year;
   writeUrl();
@@ -211,6 +245,7 @@ function buildSegs() {
     const b = e.target.closest('button'); if (!b) return;
     S.scaleMode = b.dataset.v; segSet('#seg-scale', S.scaleMode); renderScale();
   });
+  $('#in-dyn').addEventListener('change', e => { S.dyn = e.target.checked; syncControls(); scheduleUpdate(); });
   $('#seg-design').addEventListener('click', e => {
     const b = e.target.closest('button'); if (!b) return;
     S.design = b.dataset.v; syncControls(); scheduleUpdate();
@@ -218,10 +253,15 @@ function buildSegs() {
 }
 
 // ---------- URL
-const URL_KEYS = ['c', 'plp', 'ppark', 'A', 'setup', 'E', 'Pv', 'pmin', 'ca', 'T', 'alpha', 'cls', 'year', 'prof', 'design'];
+const URL_KEYS = ['c', 'plp', 'ppark', 'A', 'setup', 'E', 'Pv', 'pmin', 'ca', 'T', 'alpha', 'cls', 'year', 'prof', 'design',
+  'dyn', 'dynN', 'dynLow', 'dynShift', 'dynLoss', 'price', 'dynUp', 'dynDown'];
 function writeUrl() {
   const p = new URLSearchParams();
-  for (const k of URL_KEYS) p.set(k, S[k]);
+  for (const k of URL_KEYS) {
+    if (k.startsWith('dyn') && k !== 'dyn' && !S.dyn) continue;
+    if (k === 'price' && !S.dyn) continue;
+    p.set(k, k === 'dyn' ? (S.dyn ? 1 : 0) : S[k]);
+  }
   history.replaceState(null, '', `?${p}${location.hash}`);
 }
 function readUrl() {
@@ -230,6 +270,7 @@ function readUrl() {
     if (!p.has(k)) continue;
     const v = p.get(k);
     if (k === 'year' || k === 'design') S[k] = v;
+    else if (k === 'dyn') S.dyn = v === '1';
     else if (k === 'prof') S[k] = v === 'dc' ? 'dc' : +v;
     else if (Number.isFinite(+v)) S[k] = +v;
   }
@@ -255,6 +296,8 @@ function update() {
   renderPparkHint();
   renderSummary();
   renderDock();
+  renderDyn();
+  numberBlocks();
   renderEdge();
   renderWeek();
   renderYear();
@@ -293,12 +336,91 @@ function renderSummary() {
     kpi('Jahr', fmt.n(year.kwh / c / 1000, 1), 'MWh', `${fmt.n(year.n / c, 0)} Ladevorgänge`),
     kpi('Auslastung Nennleistung', fmt.pct(year.kwh / c / (S.plp * 8760), 1), '', `Energie im Jahr ÷ (${fmt.n(S.plp)} kW × 8.760 h)`),
   ].join('');
+  // Umsatz nur mit dynamischen Preisen (Opt-in), immer gegen Einheitspreis
+  const dz = R.dyn;
+  $('#kpis-eur-cap').hidden = $('#kpis-eur').hidden = !dz;
+  if (dz) {
+    const pkPrice = dz.price[prof.peakIdx];
+    const d0 = (a, b) => `Einheitspreis ${eur(b)} · <b>${delta(a, b)}</b>`;
+    $('#kpis-eur').innerHTML = [
+      kpi('Spitzenstunde', eur(peak.kwh * pkPrice), '', `${fmt.n(pkPrice * 100)} ct/kWh in dieser Stunde`),
+      kpi(wkLabel, eur(week.rev), '', d0(week.rev, dz.week0.rev)),
+      kpi('Jahr', eur(year.rev), '', d0(year.rev, dz.year0.rev)),
+      kpi('Je Ladepunkt und Jahr', eur(year.rev / c), '', `Ø Erlös ${fmt.n(year.rev / year.kwh * 100, 1)} ct/kWh`),
+    ].join('');
+    $('#summary').innerHTML += ` Mit dynamischen Preisen sind das <b>${delta(year.kwh, dz.year0.kwh)} Energie</b> und <b>${eur(year.rev)}</b> Umsatz im Jahr (${delta(year.rev, dz.year0.rev)} ggü. Einheitspreis).`;
+  }
 }
+function eur(v) {
+  if (!Number.isFinite(v)) return '–';
+  const a = Math.abs(v);
+  if (a >= 1e6) return `${fmt.n(v / 1e6, 2)} Mio. €`;
+  if (a >= 1e4) return `${fmt.n(v / 1000, 0)} T€`;
+  return `${fmt.n(v, 0)} €`;
+}
+function delta(a, b) { if (!(b > 0)) return '–'; const d = a / b - 1; return `${d >= 0 ? '+' : '−'}${fmt.pct(Math.abs(d), 1)}`; }
 function renderDock() {
   let d = $('#dock');
   if (!d) { d = document.createElement('a'); d.id = 'dock'; d.className = 'dock'; d.href = '#ergebnis'; document.body.appendChild(d); }
-  d.innerHTML = `<span><small>Spitzenstunde</small><b>${fmt.n(R.peak.kwh)} kWh</b></span><span><small>Woche</small><b>${fmt.n(R.week.kwh / 1000, 1)} MWh</b></span><span><small>Jahr</small><b>${fmt.n(R.year.kwh / 1000, 0)} MWh</b></span><span><small>Je LP und Jahr</small><b>${fmt.n(R.year.kwh / 1000 / S.c, 1)} MWh</b></span>`;
+  d.innerHTML = `<span><small>Spitzenstunde</small><b>${fmt.n(R.peak.kwh)} kWh</b></span><span><small>Woche</small><b>${fmt.n(R.week.kwh / 1000, 1)} MWh</b></span><span><small>Jahr</small><b>${fmt.n(R.year.kwh / 1000, 0)} MWh</b></span>${R.dyn ? `<span><small>Umsatz Jahr</small><b>${eur(R.year.rev)}</b></span>` : `<span><small>Je LP und Jahr</small><b>${fmt.n(R.year.kwh / 1000 / S.c, 1)} MWh</b></span>`}`;
 }
+// ---------- Dynamische Preise (nur mit Opt-in sichtbar)
+function renderDyn() {
+  const dz = R.dyn;
+  $('#preise').hidden = !dz;
+  document.querySelector('.nav a[href="#preise"]').hidden = !dz;
+  if (!dz) return;
+  const { week, year, lam, prof } = R;
+  const { week0, year0, prof0 } = dz;
+  const row = (l, a, b, f, better = 1, pp = false) => {
+    const d = pp ? a - b : (b ? a / b - 1 : 0);
+    const txt = pp ? `${d >= 0 ? '+' : '−'}${fmt.n(Math.abs(d) * 100, 1)} Pp` : (b ? delta(a, b) : '–');
+    const cls = Math.abs(d) < 0.0005 ? '' : (d * better > 0 ? 'up' : 'down');
+    return `<tr><td>${l}</td><td>${f(b)}</td><td>${f(a)}<small class="cmp__d ${cls}">${txt}</small></td><td class="${cls}">${txt}</td></tr>`;
+  };
+  const kwh = v => `${fmt.n(v / 1000, 1)} MWh`, n0 = v => fmt.n(v), ct = v => `${fmt.n(v * 100, 1)} ct`;
+  $('#dyn-table').innerHTML = `<div class="cmp-wrap"><table class="cmp"><thead><tr><th></th><th>Einheitspreis</th><th>Dynamisch</th><th>Δ</th></tr></thead><tbody>
+    ${row('Energie je Woche', week.kwh, week0.kwh, kwh)}
+    ${row('Energie im Jahr', year.kwh, year0.kwh, kwh)}
+    ${row('Ladevorgänge im Jahr', year.n, year0.n, n0)}
+    ${row('Umsatz im Jahr', year.rev, year0.rev, eur)}
+    ${row('Umsatz je Ladepunkt und Jahr', year.rev / S.c, year0.rev / S.c, eur)}
+    ${row('Ø Erlös je kWh', year.rev / year.kwh, year0.rev / year0.kwh, ct)}
+    ${row('Weitergefahren wegen Wartezeit', year.churn, year0.churn, v => fmt.pct(v, 1), -1, true)}
+    </tbody></table></div>
+    <p class="note">Je Woche weichen rund <b>${fmt.n(dz.movedWeek)}</b> Kunden in eine Rabatt-Stunde aus${dz.lostWeek > 0.5 ? `, <b>${fmt.n(dz.lostWeek)}</b> laden wegen des Preises nicht` : ''}. Die stärkste Stunde ist jetzt ${hourLabel(prof.peakIdx)} (vorher ${hourLabel(prof0.peakIdx)}). Sie liegt wieder genau auf der Grenze, alle anderen Stunden darunter.${S.dynLoss > dz.loss + 1e-9 ? ` Ausweichen und Wegbleiben ergeben zusammen höchstens 100 %, gerechnet wird mit ${fmt.pct(dz.loss, 0)} Wegbleiben.` : ''}</p>`;
+
+  // Nachfrage je Stunde: Balken nach Preisstufe, Linie Einheitspreis
+  const s1 = css('--s1'), up = css('--s2'), down = css('--s3'), ink = css('--ink');
+  const dem = prof.norm.map(v => v * lam);
+  const dem0 = prof0.norm.map(v => v * lam);
+  const tier = dz.sh.tier;
+  $('#leg-dyn').innerHTML = legend([['Aufschlag', up, 'bar'], ['Grundpreis', s1, 'bar'], ['Rabatt', down, 'bar'], ['Nachfrage bei Einheitspreis', ink]]);
+  plot($('#ch-dyn'), {
+    height: 260, aria: 'Nachfrage je Stunde mit und ohne dynamische Preise', margin: { l: 44 },
+    x: { domain: [0, 168], band: 168, ticks: dayTicks() },
+    y: { domain: [0, Math.max(...dem, ...dem0) * 1.1], fmt: v => fmt.n(v), label: 'Ankünfte je Stunde' },
+    layers: [
+      { type: 'bars', data: dem, gap: 1, radius: 1.5, colorAt: i => tier[i] > 0 ? up : tier[i] < 0 ? down : s1 },
+      { type: 'line', data: dem0.map((v, i) => [i, v]), color: ink, width: 1.25 },
+      { type: 'hline', y: lam, label: `Grenze ${fmt.n(lam, 1)} / h` },
+    ],
+    tip: { html: i => `<div class="head">${hourLabel(i)}</div>
+      <div class="row"><span>Preis</span><b>${fmt.n(dz.price[i] * 100)} ct/kWh</b></div>
+      <div class="row"><span>Ankünfte dynamisch</span><b>${fmt.n(dem[i], 1)}</b></div>
+      <div class="row"><span>Ankünfte Einheitspreis</span><b>${fmt.n(dem0[i], 1)}</b></div>
+      <div class="row"><span>Energie</span><b>${fmt.n(week.hours[i].kwh)} kWh</b></div>
+      <div class="row"><span>Umsatz</span><b>${eur(week.hours[i].kwh * dz.price[i])}</b></div>` },
+  });
+}
+
+// Abschnittsnummern folgen den sichtbaren Abschnitten
+function numberBlocks() {
+  [...document.querySelectorAll('.block')].filter(b => !b.hidden).forEach((b, i) => {
+    const no = b.querySelector('.block__no'); if (no) no.textContent = String(i + 1).padStart(2, '0');
+  });
+}
+
 // Hinweis unter dem Netzanschluss: was je Ladepunkt übrig bleibt
 function renderPparkHint() {
   const box = $('#in-ppark').closest('.field').querySelector('.field__hint');
@@ -754,6 +876,8 @@ function renderMethod() {
       <li><b>Zurückrechnen.</b> Jede Stunde h der Woche bekommt λ<sub>h</sub> = λ* · n<sub>h</sub> / n<sub>max</sub>, wobei n<sub>h</sub> die gemessenen Ladestarts sind. Jede Stunde wird für sich als eingeschwungen gerechnet. Spitzenstunde im gewählten Profil: ${pkTxt}, das ${fmt.n(prof.peakToAvg, 2)}-Fache der Durchschnittsstunde. Für das Jahr skaliert der Monatsindex (Ladevorgänge je Ladepunkt und Tag, ${season.year}) die Woche. Bei „Ø Woche“ liegt die Grenze auf der Durchschnittswoche, bei „Spitzenmonat“ auf dem stärksten Monat.</li>
       <li><b>Gegenprobe.</b> Eine ereignisdiskrete Simulation zieht jedes Fahrzeug einzeln aus denselben Verteilungen, teilt den Netzanschluss in jedem Moment neu auf, lässt Ladepunkte zufällig ausfallen (mittlere Störungsdauer 4 h) und schickt Kunden nach T Wartezeit weg. Sie läuft im Hintergrund und wird als Punkte bzw. Linie eingeblendet.</li>
     </ol>
+    ${R.dyn ? `<h3>Dynamische Preise</h3>
+    <p>In jedem Wochentag bekommen die ${S.dynN} Stunden mit den meisten Ladestarts einen Aufschlag von ${S.dynUp} ct/kWh, die ${S.dynLow} schwächsten Stunden einen Rabatt von ${S.dynDown} ct/kWh. Von den Kunden in Hochpreis-Stunden weichen ${fmt.pct(S.dynShift, 0)} in die Rabatt-Stunden desselben Tages aus, verteilt nach Abstand zur stärksten Stunde des Tages. ${fmt.pct(R.dyn.loss, 0)} laden gar nicht. Danach wird der Park für das neue Profil wieder auf die Grenze gelegt. Weil die Spitze flacher ist, verträgt der Park insgesamt mehr Nachfrage. Umsatz = Σ Energie der Stunde × Preis der Stunde, brutto. Enthalten ist, dass auch Kunden, die ohnehin in einer Rabatt-Stunde laden, den Rabatt bekommen. Nicht modelliert sind Kunden, die wegen des Rabatts zusätzlich kommen, und Ausweichen über die Tagesgrenze hinweg.</p>` : ''}
     <div class="formula">P(W &gt; T) = λ·π<sub>c−1</sub>·e<sup>−(μ<sub>c</sub>−λ)T/f</sup> / μ<sub>c</sub> &nbsp;/&nbsp; Σ … &nbsp;&nbsp; mit f = (c<sub>A</sub>² + c<sub>S</sub>²)/2 &nbsp;&nbsp; aktuell c<sub>S</sub>² = ${fmt.n(svc.cs2[S.c], 2)}</div>
 
     <h3>Annahmen, die du kennen solltest</h3>

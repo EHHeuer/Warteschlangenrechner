@@ -24,6 +24,7 @@ Kein Build-Schritt, keine Abhängigkeiten. Die Seite ist statisch (HTML, CSS, ES
 | Kunden | Ø Lademenge, Ø Ladeleistung der Fahrzeuge (Form der Verteilung aus den Daten), Streuung der Ankünfte (CV) |
 | Grenze | Geduld T, erlaubter Churn α |
 | Datenbasis | Leistungsklasse und Jahr der Verteilung, Wochenprofil, Auslegung auf Ø Woche oder Spitzenmonat |
+| Dynamische Preise (optional) | Hochpreis- und Rabatt-Stunden je Tag, Anteil der ausweicht, Anteil der wegbleibt, Grundpreis, Aufschlag, Rabatt. Ergebnis zusätzlich in € im Vergleich zum Einheitspreis |
 
 Alle Einstellungen stehen in der URL und lassen sich als Link teilen.
 
@@ -39,6 +40,10 @@ Alle Einstellungen stehen in der URL und lassen sich als Link teilen.
   [Warteschlangenrechner der TU Clausthal](https://www.mathematik.tu-clausthal.de/studium/mathematik-interaktiv/warteschlangentheorie/warteschlangenrechner).
 - **Hochrechnung:** λₕ = λ* · nₕ / n_max je Stunde der Woche (punktweise stationär), Monatsindex aus
   Ladevorgängen je Ladepunkt und Tag.
+- **Dynamische Preise:** In den N stärksten Stunden jedes Tages weicht ein Anteil in die schwächsten Stunden
+  desselben Tages aus (verteilt nach Abstand zum Tagesmaximum), ein Anteil bleibt weg. Danach wird der Park für
+  das geglättete Profil erneut auf die Grenze gelegt. Umsatz = Σ Energie × Preis der Stunde (brutto). Startwert
+  des Grundpreises: Median der Ad-hoc-Preise an DC-Ladepunkten aus OBELIS.
 - **Gegenprobe:** Ereignisdiskrete Simulation im Web Worker (`web/js/sim.js`) mit denselben Verteilungen,
   Water-Filling in jedem Moment, zufälligen Ausfällen und Abbruch nach T.
 

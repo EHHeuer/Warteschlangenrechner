@@ -24,6 +24,7 @@
         <a href="#live">Live</a>
         <a href="#kante">Kipppunkt</a>
         <a href="#woche">Woche</a>
+        <a href="#preise" hidden>Preise</a>
         <a href="#jahr">Jahr</a>
         <a href="#kunden">Kunden</a>
         <a href="#skalierung">Skalierung</a>
@@ -79,6 +80,21 @@
           <div class="field" data-key="alpha"></div>
         </fieldset>
 
+        <fieldset class="group group--opt">
+          <legend><span>Dynamische Preise</span>
+            <label class="switch" title="Dynamische Preise ein/aus"><input type="checkbox" id="in-dyn" aria-label="Dynamische Preise einbeziehen"><span aria-hidden="true"></span></label></legend>
+          <p class="group__lede">Optional: Aufschlag in den stärksten Stunden, Rabatt in den schwächsten. Ein Teil der Kunden weicht aus. Ergebnis zusätzlich in €.</p>
+          <div id="dyn-body" hidden>
+            <div class="field" data-key="dynN"></div>
+            <div class="field" data-key="dynLow"></div>
+            <div class="field" data-key="dynShift"></div>
+            <div class="field" data-key="dynLoss"></div>
+            <div class="field" data-key="price"></div>
+            <div class="field" data-key="dynUp"></div>
+            <div class="field" data-key="dynDown"></div>
+          </div>
+        </fieldset>
+
         <fieldset class="group">
           <legend>Datenbasis</legend>
           <div class="ctl">
@@ -116,6 +132,8 @@
         <div class="kpis" id="kpis"></div>
         <p class="kpis__caption">Je Ladepunkt</p>
         <div class="kpis kpis--lp" id="kpis-lp"></div>
+        <p class="kpis__caption" id="kpis-eur-cap" hidden>Umsatz mit dynamischen Preisen</p>
+        <div class="kpis kpis--lp" id="kpis-eur" hidden></div>
       </section>
 
       <!-- 02 Live -->
@@ -189,6 +207,17 @@
           <div id="ch-heat" class="chart-box"></div>
           <div class="scale-key" id="heat-key"></div>
         </figure>
+      </section>
+
+      <!-- Dynamische Preise (Opt-in) -->
+      <section class="block" id="preise" hidden>
+        <header class="block__head">
+          <span class="block__no">05</span>
+          <h2>Dynamische Preise</h2>
+          <p class="block__lede">Ein Aufschlag in den stärksten Stunden schiebt einen Teil der Nachfrage in schwache Stunden desselben Tages. Die Spitze wird flacher, der Park wird erneut auf die Grenze gelegt und verträgt über die Woche mehr Kunden. Verglichen wird mit demselben Park bei Einheitspreis.</p>
+        </header>
+        <figure class="card"><figcaption class="card__title">Nachfrage je Stunde der Woche <span class="legend" id="leg-dyn"></span></figcaption><div id="ch-dyn" class="chart-box"></div></figure>
+        <figure class="card"><figcaption class="card__title">Vergleich mit Einheitspreis</figcaption><div id="dyn-table"></div></figure>
       </section>
 
       <!-- 05 Jahr -->

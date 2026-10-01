@@ -77,6 +77,11 @@ def main():
             "season": season,
         })
 
+    # Ad-hoc-Arbeitspreise der Schnellladepunkte (ct/kWh brutto, P10/P25/Median/P75/P90)
+    pr = d.get("prices", {}).get("types", {}).get("schnell")
+    if pr:
+        out["prices_dc"] = {"n": pr["n"], "q": pr["q"]}
+
     peaks = d.get("occupancy", {}).get("peaks", {})
     out["occupancy_dc"] = {y: v["dc"] for y, v in peaks.items() if "dc" in v}
 
