@@ -209,7 +209,11 @@ code { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 0.88em
 /* ---------- Live-Park */
 .card--live { padding: 14px 18px 16px; }
 .live__bar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 8px; }
+.live__bar { align-items: flex-end; gap: 18px; }
 .live__bar #play { margin-left: auto; }
+.live__ctl { display: flex; flex-direction: column; gap: 4px; }
+.live__ctl .ctl__label { font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); font-weight: 600; }
+.live__note { font-size: 13px; color: var(--ink-2); margin: 2px 0 12px; }
 .park svg { display: block; width: 100%; height: auto; }
 .park .lp-label { font-size: 10.5px; fill: var(--muted); }
 .park .lp-kw { font-size: 11px; fill: var(--ink-2); font-weight: 600; }

@@ -122,22 +122,29 @@
         <header class="block__head">
           <span class="block__no">02</span>
           <h2>Der Park in der Spitzenstunde</h2>
-          <p class="block__lede">Eine laufende Simulation mit der gefundenen Ankunftsrate. Jedes Fahrzeug bekommt Lademenge und Ladeleistung aus der Datenverteilung. Der Netzanschluss wird dynamisch aufgeteilt.</p>
+          <p class="block__lede">Eine Simulation genau dieser einen Stunde mit der berechneten Ankunftsrate. Jedes Fahrzeug bekommt Lademenge und Ladeleistung aus der Datenverteilung, der Netzanschluss wird laufend aufgeteilt. Wer länger als die Geduldsgrenze wartet, fährt weiter. Damit die Stunde mit einem typisch belegten Park beginnt, läuft vorher unsichtbar eine Stunde zum Einschwingen.</p>
         </header>
         <div class="card card--live">
           <div class="live__bar">
-            <div class="seg seg--sm" id="seg-speed" role="group" aria-label="Geschwindigkeit">
-              <button type="button" data-v="1">1 min/s</button>
-              <button type="button" data-v="5">5 min/s</button>
-              <button type="button" data-v="20">20 min/s</button>
+            <div class="live__ctl">
+              <span class="ctl__label">Tempo</span>
+              <div class="seg seg--sm" id="seg-speed" role="group" aria-label="Tempo">
+                <button type="button" data-v="1">1 min pro s</button>
+                <button type="button" data-v="5">5 min pro s</button>
+                <button type="button" data-v="20">20 min pro s</button>
+              </div>
             </div>
-            <div class="seg seg--sm" id="seg-load" role="group" aria-label="Nachfrage">
-              <button type="button" data-v="0.8">80 %</button>
-              <button type="button" data-v="1">100 %</button>
-              <button type="button" data-v="1.2">120 %</button>
+            <div class="live__ctl">
+              <span class="ctl__label">Nachfrage ggü. Grenze</span>
+              <div class="seg seg--sm" id="seg-load" role="group" aria-label="Nachfrage gegenüber der berechneten Grenze">
+                <button type="button" data-v="0.8">80 %</button>
+                <button type="button" data-v="1">100 %</button>
+                <button type="button" data-v="1.2">120 %</button>
+              </div>
             </div>
             <button class="icon-btn icon-btn--text" id="play" type="button" aria-pressed="true">Pause</button>
           </div>
+          <p class="live__note" id="load-note"></p>
           <div id="park" class="park"></div>
           <div class="live__stats" id="live-stats"></div>
         </div>

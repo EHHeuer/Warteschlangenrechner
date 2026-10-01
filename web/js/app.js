@@ -545,109 +545,141 @@ function runSim() {
 }
 
 // ---------- 02 Live-Park
-const live = { park: null, speed: 1, load: 1, playing: true, last: 0, visible: true, raf: 0, frame: 0 };
+// Zeigt genau eine Spitzenstunde. Vorher läuft eine unsichtbare Stunde zum Einschwingen,
+// damit die gezeigte Stunde mit einem typisch belegten Park beginnt.
+const live = { park: null, speed: 1, load: 1, playing: true, last: 0, visible: true, raf: 0, frame: 0, done: false, churned: [] };
 function restartLive() {
   live.park = new Park({ ...simBase(), rate: R.lam * live.load, seed: (Math.random() * 1e9) | 0 });
-  live.park.advance(1);   // mit belegtem Park starten
+  live.park.advance(1);
   live.park.reset();
+  live.park.events.length = 0;
   live.t0 = live.park.t;
-  live.churnMarks = [];
+  live.churned = [];
+  live.done = false;
+  setPlay(!matchMedia('(prefers-reduced-motion: reduce)').matches);
+  $('#load-note').innerHTML = loadNote();
   drawPark();
+}
+function loadNote() {
+  const lam = R.lam * live.load;
+  const rel = live.load === 1 ? 'genau die berechnete Grenze' : live.load < 1 ? `${fmt.pct(1 - live.load, 0)} unter der Grenze` : `${fmt.pct(live.load - 1, 0)} über der Grenze`;
+  return `Nachfrage ${fmt.pct(live.load, 0)}: ${fmt.n(lam, 1)} Ankünfte in der Stunde, ${rel}. Analytisch erwartet: ${fmt.pct(M.evalHour(lam, R.P).churn, 1)} fahren weiter. Eine einzelne Stunde streut stark, der Mittelwert über viele Stunden steht im Kipppunkt (03).`;
+}
+function setPlay(on) {
+  live.playing = on;
+  const b = $('#play');
+  b.textContent = live.done ? 'Neue Stunde' : on ? 'Pause' : 'Weiter';
+  b.setAttribute('aria-pressed', String(on));
 }
 function liveLoop(ts) {
   live.raf = requestAnimationFrame(liveLoop);
-  if (!live.playing || !live.visible || !live.park) { live.last = ts; return; }
+  if (!live.playing || !live.visible || !live.park || live.done) { live.last = ts; return; }
   const dt = Math.min(0.1, (ts - (live.last || ts)) / 1000);
   live.last = ts;
-  live.park.advance(live.park.t + dt * live.speed / 60);
+  const p = live.park;
+  const tEnd = live.t0 + 1;
+  p.advance(Math.min(tEnd, p.t + dt * live.speed / 60));
+  for (const e of p.events) if (e.type === 'churn') live.churned.push(e);
+  p.events.length = 0;
+  if (p.t >= tEnd - 1e-9) { live.done = true; setPlay(false); drawPark(); return; }
   if ((live.frame++ & 1) === 0) drawPark();
+}
+function carGlyph(x, y, w, fill, op = 1) {
+  const h = w * 0.62;
+  return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${w * 0.26}" fill="${fill}" opacity="${op}"/>` +
+    `<rect x="${x + w * 0.2}" y="${y + h * 0.18}" width="${w * 0.6}" height="${h * 0.24}" rx="1.5" fill="var(--surface)" opacity=".75"/>`;
 }
 function drawPark() {
   const p = live.park; if (!p) return;
   const box = $('#park');
   const W = Math.max(box.clientWidth, 300);
   const n = p.lps.length;
-  const cols = Math.min(n, W < 560 ? 5 : 10);
+  const narrow = W < 560;
+  const cols = Math.min(n, narrow ? 5 : 10);
   const rows = Math.ceil(n / cols);
-  const qW = W < 560 ? 0 : 150;
-  const gap = 8, bayW = Math.min(64, (W - qW - 20 - gap * (cols - 1)) / cols), bayH = Math.min(86, bayW * 1.45);
-  const top = 46;
-  const qRows = W < 560 ? 1 : 0;
-  const H = top + rows * (bayH + 26) + (qRows ? 40 : 0) + 8;
-  const x0 = qW + 10;
+  const gap = 8, bayW = Math.min(64, (W - gap * (cols - 1)) / cols), bayH = Math.min(86, bayW * 1.45);
+  const top = narrow ? 104 : 58;
+  const laneH = 50;
+  const lanesY = top + rows * (bayH + 26) + 10;
+  const H = lanesY + 2 * laneH + 4;
   const ch = css('--charge'), su = css('--setup'), dn = css('--down'), wt = css('--wait'), cr = css('--churn'), ink = css('--ink'), hair = css('--hair'), surf = css('--surface-2');
-  let s = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Animierter Ladepark">`;
-  // Uhr und Parkleistung
-  const hrs = p.t, hh = Math.floor(hrs % 24), mm = Math.floor((hrs * 60) % 60);
-  s += `<text x="0" y="16" class="lbl">Simulierte Zeit</text><text x="0" y="34" class="clock">${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')} · Tag ${Math.floor(hrs / 24) + 1}</text>`;
-  const pmax = R.pEff;
-  const pw = p.power || 0, gx = W < 560 ? W * 0.42 : Math.max(160, W * 0.35), gw = W - gx;
-  s += `<text x="${gx}" y="16" class="lbl">Parkleistung</text><text x="${W}" y="16" text-anchor="end" class="lp-kw">${fmt.n(pw)} / ${fmt.n(pmax)} kW</text>`;
-  s += `<rect x="${gx}" y="26" width="${gw}" height="6" rx="3" fill="${surf}"/><rect x="${gx}" y="26" width="${gw * Math.min(1, pw / pmax)}" height="6" rx="3" fill="${ch}"/>`;
-  // Warteschlange
-  const qn = p.queue.length;
-  if (qW) {
-    s += `<text x="0" y="${top + 12}" class="lbl">Warteschlange</text>`;
-    const per = 6;
-    p.queue.slice(0, 30).forEach((v, i) => {
-      const cx = 10 + (i % per) * 22, cy = top + 34 + Math.floor(i / per) * 22;
-      const wait = (p.t - v.arr) / R.T;
-      s += `<circle cx="${cx}" cy="${cy}" r="7" fill="${wt}" opacity="${0.45 + 0.55 * Math.min(1, wait)}"/>`;
-    });
-    if (qn > 30) s += `<text x="0" y="${top + 34 + 5 * 22 + 4}" class="lp-label">+${qn - 30}</text>`;
-    if (!qn) s += `<text x="0" y="${top + 38}" class="lp-label">frei</text>`;
-  } else {
-    const y = top + rows * (bayH + 26) + 18;
-    s += `<text x="0" y="${y}" class="lbl">Warteschlange ${qn}</text>`;
-    p.queue.slice(0, 14).forEach((v, i) => { s += `<circle cx="${120 + i * 16}" cy="${y - 4}" r="5.5" fill="${wt}"/>`; });
-  }
+  let s = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Animierte Spitzenstunde im Ladepark">`;
+
+  // Uhr der Spitzenstunde mit Fortschritt
+  const pk = R.prof.peakIdx, day = DAYS[Math.floor(pk / 24)], h0 = pk % 24;
+  const el = Math.max(0, Math.min(1, p.t - live.t0)), min = Math.floor(el * 60);
+  const half = narrow ? W : W * 0.48;
+  s += `<text x="0" y="14" class="lbl">Spitzenstunde ${day} ${h0}–${h0 + 1} Uhr</text>`;
+  const clock = live.done ? `${String(h0 + 1).padStart(2, '0')}:00 · Stunde vorbei` : `${String(h0).padStart(2, '0')}:${String(Math.min(59, min)).padStart(2, '0')}`;
+  s += `<text x="0" y="34" class="clock">${day} ${clock}</text>`;
+  const cl = narrow ? W : half - 24;
+  s += `<rect x="0" y="44" width="${cl}" height="4" rx="2" fill="${surf}"/><rect x="0" y="44" width="${cl * el}" height="4" rx="2" fill="${ink}"/>`;
+  // Parkleistung: rechts daneben, mobil in eigener Zeile
+  const pmax = R.pEff, pw = p.power || 0;
+  const gx = narrow ? 0 : half, gw = W - gx, gy = narrow ? 46 : 0;
+  s += `<text x="${gx}" y="${gy + 14}" class="lbl">Parkleistung</text><text x="${W}" y="${gy + 34}" text-anchor="end" class="lp-kw">${fmt.n(pw)} / ${fmt.n(pmax)} kW</text>`;
+  s += `<rect x="${gx}" y="${gy + 44}" width="${gw}" height="4" rx="2" fill="${surf}"/><rect x="${gx}" y="${gy + 44}" width="${gw * Math.min(1, pw / pmax)}" height="4" rx="2" fill="${ch}"/>`;
+
   // Ladepunkte
   p.lps.forEach((l, i) => {
-    const cx = x0 + (i % cols) * (bayW + gap), cy = top + Math.floor(i / cols) * (bayH + 26);
+    const cx = (i % cols) * (bayW + gap), cy = top + Math.floor(i / cols) * (bayH + 26);
     s += `<rect x="${cx}" y="${cy}" width="${bayW}" height="${bayH}" rx="7" fill="none" stroke="${hair}" stroke-width="1.2"/>`;
     if (l.st === STATE.CHARGE || l.st === STATE.SETUP) {
       const prog = l.v ? 1 - l.v.e / l.v.e0 : 1;
       const fillH = (bayH - 8) * (l.st === STATE.SETUP ? 1 : prog);
       s += `<rect x="${cx + 4}" y="${cy + bayH - 4 - fillH}" width="${bayW - 8}" height="${fillH}" rx="4" fill="${l.st === STATE.SETUP ? su : ch}" opacity="${l.st === STATE.SETUP ? 1 : 0.9}"/>`;
-      // Fahrzeug
-      const vw = bayW * 0.5, vh = bayH * 0.36, vx = cx + (bayW - vw) / 2, vy = cy + 8;
-      s += `<rect x="${vx}" y="${vy}" width="${vw}" height="${vh}" rx="${vw * 0.28}" fill="${ink}" opacity="${l.st === STATE.SETUP ? 0.35 : 0.85}"/>`;
-      s += `<rect x="${vx + vw * 0.18}" y="${vy + vh * 0.16}" width="${vw * 0.64}" height="${vh * 0.22}" rx="2" fill="${surf}" opacity=".7"/>`;
+      const vw = bayW * 0.5;
+      s += carGlyph(cx + (bayW - vw) / 2, cy + 8, vw, ink, l.st === STATE.SETUP ? 0.35 : 0.85);
     } else if (l.st === STATE.DOWN) {
       s += `<path d="M${cx + bayW * 0.3},${cy + bayH * 0.35}L${cx + bayW * 0.7},${cy + bayH * 0.65}M${cx + bayW * 0.7},${cy + bayH * 0.35}L${cx + bayW * 0.3},${cy + bayH * 0.65}" stroke="${dn}" stroke-width="2.2" stroke-linecap="round"/>`;
     }
     const lab = l.st === STATE.CHARGE ? `${fmt.n(l.p)} kW` : l.st === STATE.SETUP ? 'Wechsel' : l.st === STATE.DOWN ? 'Störung' : 'frei';
     s += `<text x="${cx + bayW / 2}" y="${cy + bayH + 15}" text-anchor="middle" class="${l.st === STATE.CHARGE ? 'lp-kw' : 'lp-label'}">${lab}</text>`;
   });
-  // Weitergefahrene kurz aufblitzen lassen
-  const recent = p.events.filter(e => e.type === 'churn' && p.t - e.t < 4 / 60);
-  recent.forEach((e, i) => {
-    const age = (p.t - e.t) / (4 / 60);
-    s += `<circle cx="${(qW || 120) - 12 - age * 30}" cy="${top + 20 + i * 4}" r="${6 * (1 - age) + 2}" fill="${cr}" opacity="${1 - age}"/>`;
+
+  // Spur 1: Warteschlange, Balken unter jedem Auto zeigt die Wartezeit bis zur Geduldsgrenze T
+  const cw = 26, step = 34, maxCars = Math.max(1, Math.floor((W - 4) / step));
+  const qn = p.queue.length;
+  s += `<line x1="0" x2="${W}" y1="${lanesY - 4}" y2="${lanesY - 4}" stroke="${hair}"/>`;
+  s += `<text x="0" y="${lanesY + 10}" class="lbl">Warteschlange · ${qn}</text>`;
+  if (!qn) s += `<text x="0" y="${lanesY + 32}" class="lp-label">niemand wartet</text>`;
+  p.queue.slice(0, maxCars).forEach((v, i) => {
+    const x = i * step, y = lanesY + 18;
+    const w = Math.min(1, (p.t - v.arr) / R.T);
+    s += carGlyph(x, y, cw, wt);
+    s += `<rect x="${x}" y="${y + 20}" width="${cw}" height="3" rx="1.5" fill="${surf}"/><rect x="${x}" y="${y + 20}" width="${cw * w}" height="3" rx="1.5" fill="${w > 0.8 ? cr : wt}"/>`;
   });
+  if (qn > maxCars) s += `<text x="${W}" y="${lanesY + 10}" text-anchor="end" class="lp-label">+${qn - maxCars} weitere</text>`;
+
+  // Spur 2: Weitergefahren in dieser Stunde, ein rotes Auto je Kunde
+  const ly = lanesY + laneH;
+  const cn = live.churned.length;
+  s += `<text x="0" y="${ly + 10}" class="lbl">Weitergefahren nach ${fmt.n(S.T)} min · ${cn}</text>`;
+  if (!cn) s += `<text x="0" y="${ly + 32}" class="lp-label">noch niemand</text>`;
+  live.churned.slice(-maxCars).forEach((e, i) => {
+    const fresh = Math.max(0, 1 - (p.t - e.t) * 60 / 1.5);   // 1,5 Minuten hervorgehoben
+    s += carGlyph(i * step, ly + 18, cw, cr, 0.55 + 0.45 * fresh);
+  });
+  if (cn > maxCars) s += `<text x="${W}" y="${ly + 10}" text-anchor="end" class="lp-label">${cn - maxCars} weitere</text>`;
   s += '</svg>';
   box.innerHTML = s;
-  // Kennzahlen
+
+  // Kennzahlen dieser Stunde
   const st = p.summary();
   const ok = st.hours > 0.02;
   $('#live-stats').innerHTML = [
     ['Ankünfte', fmt.n(p.stats.arr)],
-    ['Weitergefahren', `${fmt.n(p.stats.churn)} · ${fmt.pct(st.churn, 1)}`],
+    ['Weitergefahren', p.stats.arr ? `${fmt.n(p.stats.churn)} · ${fmt.pct(p.stats.churn / p.stats.arr, 1)}` : '0'],
     ['Ø Warten', `${fmt.n(st.wq * 60, 1)} min`],
-    ['Energie je Stunde', st.hours > 0.1 ? `${fmt.n(st.kwhPerH)} kWh` : '–'],
-    ['Belegt', ok ? `${fmt.n(st.busy, 1)} von ${S.c}` : '–'],
+    ['Geladen', `${fmt.n(p.stats.kwh)} kWh`],
+    ['Belegt Ø', ok ? `${fmt.n(st.busy, 1)} von ${S.c}` : '–'],
   ].map(([a, b]) => `<div>${a}<b>${b}</b></div>`).join('');
 }
 function liveControls() {
   segSet('#seg-speed', live.speed); segSet('#seg-load', live.load);
   $('#seg-speed').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; live.speed = +b.dataset.v; segSet('#seg-speed', live.speed); });
   $('#seg-load').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; live.load = +b.dataset.v; segSet('#seg-load', live.load); restartLive(); });
-  $('#play').addEventListener('click', () => {
-    live.playing = !live.playing;
-    $('#play').textContent = live.playing ? 'Pause' : 'Weiter';
-    $('#play').setAttribute('aria-pressed', String(live.playing));
-  });
-  if (matchMedia('(prefers-reduced-motion: reduce)').matches) { live.playing = false; $('#play').textContent = 'Weiter'; }
+  $('#play').addEventListener('click', () => { if (live.done) restartLive(); else setPlay(!live.playing); });
   new IntersectionObserver(es => { live.visible = es[0].isIntersecting; }).observe($('#park'));
   live.raf = requestAnimationFrame(liveLoop);
 }
