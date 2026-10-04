@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Schnellladebedarf Deutschland · Warteschlangenrechner</title>
+  <meta name="description" content="Wie viele Schnellladepunkte braucht Deutschland? Hochrechnung aus Pkw-Bestand, E-Anteil, Fahrleistung, Verbrauch und Schnellladeanteil, mit der Energie je Ladepunkt aus dem Warteschlangenrechner.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%2317202a'/%3E%3Cpath d='M7 22h18M9 22v-7h4v7M15 22V11h4v11M21 22v-4h3' stroke='%23f4f2ec' stroke-width='2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="masthead">
+    <div class="wrap masthead__inner">
+      <a class="brand" href="#top">
+        <span class="brand__mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <span class="brand__name">Warteschlangenrechner</span>
+      </a>
+      <nav class="pages" aria-label="Seiten">
+        <a href="index.html" data-page="park">Park</a>
+        <a href="bedarf.html" aria-current="page">Bedarf DE</a>
+      </nav>
+      <button class="icon-btn" id="theme" type="button" aria-label="Farbschema wechseln" title="Hell / Dunkel">
+        <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.2" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 1.8a6.2 6.2 0 0 1 0 12.4z" fill="currentColor"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <section class="hero hero--small" id="top">
+    <div class="wrap">
+      <p class="eyebrow">Hochrechnung · Deutschland · Pkw</p>
+      <h1 class="hero__title">Wie viele Schnellladepunkte braucht <em>Deutschland?</em></h1>
+      <p class="hero__lede">Aus Pkw-Bestand, Elektroanteil, Fahrleistung und Verbrauch folgt der Ladestrom aller E-Pkw. Ein Teil davon kommt aus Schnellladen. Geteilt durch die Energie, die ein Ladepunkt an der Churn-Grenze abgeben kann, ergibt sich die Zahl der nötigen Ladepunkte.</p>
+    </div>
+  </section>
+
+  <main class="wrap app">
+    <aside class="panel" aria-label="Annahmen">
+      <div class="panel__inner">
+        <div class="panel__head">
+          <h2 class="panel__title">Annahmen</h2>
+          <button class="link-btn" id="reset" type="button">Zurücksetzen</button>
+        </div>
+        <fieldset class="group">
+          <legend>Fahrzeuge</legend>
+          <div class="field" data-key="bdelta"></div>
+          <div class="field" data-key="ea"></div>
+        </fieldset>
+        <fieldset class="group">
+          <legend>Nutzung</legend>
+          <div class="field" data-key="km"></div>
+          <div class="field" data-key="vb"></div>
+          <div class="field" data-key="sl"></div>
+        </fieldset>
+        <fieldset class="group">
+          <legend>Ladepunkte</legend>
+          <div class="field" data-key="opt"></div>
+          <p class="group__lede" id="park-info"></p>
+          <p class="group__lede"><a id="park-link" href="index.html">Park auf Seite 1 ändern →</a></p>
+        </fieldset>
+        <p class="panel__note">Die Einstellungen beider Seiten stehen in der Adresszeile und lassen sich als Link teilen.</p>
+      </div>
+    </aside>
+
+    <div class="results">
+      <section class="block" id="ergebnis">
+        <header class="block__head">
+          <span class="block__no">01</span>
+          <h2>Ergebnis</h2>
+        </header>
+        <p class="summary" id="summary"></p>
+        <div class="kpis" id="kpis"></div>
+        <p class="note" id="compare"></p>
+      </section>
+
+      <section class="block" id="rechenweg">
+        <header class="block__head">
+          <span class="block__no">02</span>
+          <h2>Rechenweg</h2>
+          <p class="block__lede">Jeder Schritt ist eine einfache Multiplikation oder Division. Das Ergebnis reagiert deshalb auf jede Annahme proportional.</p>
+        </header>
+        <ol class="steps" id="steps"></ol>
+      </section>
+
+      <section class="block" id="empfindlichkeit">
+        <header class="block__head">
+          <span class="block__no">03</span>
+          <h2>Die zwei großen Hebel</h2>
+          <p class="block__lede">Am unsichersten sind der Anteil des Schnellladens am Ladestrom und wie nah die Ladepunkte im Mittel an ihrer Grenze laufen. Beide verändern das Ergebnis direkt.</p>
+        </header>
+        <div class="grid-2">
+          <figure class="card">
+            <figcaption class="card__title">Ladepunkte nach Schnellladeanteil <span class="legend" id="leg-sl"></span></figcaption>
+            <div id="ch-sl" class="chart-box"></div>
+          </figure>
+          <figure class="card">
+            <figcaption class="card__title">Ladepunkte nach Nähe zum Optimum</figcaption>
+            <div id="ch-opt" class="chart-box"></div>
+          </figure>
+        </div>
+      </section>
+
+      <section class="block block--prose" id="methodik">
+        <header class="block__head">
+          <span class="block__no">04</span>
+          <h2>Annahmen und Quellen</h2>
+        </header>
+        <div class="prose">
+          <ul>
+            <li><b>Pkw-Bestand:</b> 49.486.487 Pkw am 1. Januar 2026, davon 2.034.260 reine Elektro-Pkw (4,1 %). Quelle: <a href="https://www.kba.de/DE/Presse/Pressemitteilungen/Fahrzeugbestand/2026/pm09_fz_bestand_pm_komplett.html" target="_blank" rel="noopener">KBA, Pressemitteilung 09/2026</a>.</li>
+            <li><b>Fahrleistung:</b> Ø 10.616 km je Pkw im Jahr 2025 laut KBA-Reihe „Verkehr in Kilometern“ (<a href="https://www.kba.de/DE/Presse/Pressemitteilungen/Allgemein/2026/pm38_2026_verkehr_in_kilometern.html" target="_blank" rel="noopener">KBA, Pressemitteilung 38/2026</a>). Der Wert stammt aus der Berichterstattung zur Mitteilung und sollte vor externer Verwendung am Original geprüft werden. E-Pkw fahren im Mittel eher mehr als der Durchschnitt.</li>
+            <li><b>Verbrauch</b> und <b>Schnellladeanteil</b> sind Annahmen. Der Verbrauch gilt ab Ladepunkt, also inklusive Ladeverlusten.</li>
+            <li><b>Energie je Ladepunkt</b> kommt aus Seite 1: Dort wird ein Park bis an die Churn-Grenze ausgelastet und über Wochenrhythmus und Saison auf das Jahr gerechnet. Die Nähe zum Optimum teilt diesen Wert. Alle Ladepunkte sind dabei gleich groß und gleich ausgelastet gedacht. In Wirklichkeit gibt es stark und schwach genutzte Standorte.</li>
+            <li><b>Nicht enthalten:</b> leichte und schwere Nutzfahrzeuge, ausländische Fahrzeuge, regionale Verteilung, Abdeckungsziele (Ladepunkte, die für die Erreichbarkeit nötig sind, auch wenn sie wenig ausgelastet sind).</li>
+            <li>Zum Vergleich wird die Zahl der in OBELIS meldenden, geförderten DC-Ladepunkte über 50 kW gezeigt (NOW GmbH, CC BY 4.0). Das ist eine Untergrenze, nicht der Gesamtbestand.</li>
+          </ul>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="foot">
+    <div class="wrap foot__inner">
+      <p>Modellrechnung, keine Prognose. Quellen siehe Abschnitt „Annahmen und Quellen“.</p>
+    </div>
+  </footer>
+  <script type="module" src="js/bedarf.js"></script>
+</body>
+</html>

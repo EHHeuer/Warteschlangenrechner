@@ -256,13 +256,16 @@ function buildSegs() {
 const URL_KEYS = ['c', 'plp', 'ppark', 'A', 'setup', 'E', 'Pv', 'pmin', 'ca', 'T', 'alpha', 'cls', 'year', 'prof', 'design',
   'dyn', 'dynN', 'dynLow', 'dynShift', 'dynLoss', 'price', 'dynUp', 'dynDown'];
 function writeUrl() {
-  const p = new URLSearchParams();
+  // Fremde Parameter (z. B. von Seite 2) bleiben erhalten
+  const p = new URLSearchParams(location.search);
+  for (const k of URL_KEYS) p.delete(k);
   for (const k of URL_KEYS) {
     if (k.startsWith('dyn') && k !== 'dyn' && !S.dyn) continue;
     if (k === 'price' && !S.dyn) continue;
     p.set(k, k === 'dyn' ? (S.dyn ? 1 : 0) : S[k]);
   }
   history.replaceState(null, '', `?${p}${location.hash}`);
+  document.querySelectorAll('[data-page="bedarf"]').forEach(l => { l.href = `bedarf.html?${p}`; });
 }
 function readUrl() {
   const p = new URLSearchParams(location.search);

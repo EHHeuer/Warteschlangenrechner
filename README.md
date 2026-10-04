@@ -28,6 +28,14 @@ Kein Build-Schritt, keine Abhängigkeiten. Die Seite ist statisch (HTML, CSS, ES
 
 Alle Einstellungen stehen in der URL und lassen sich als Link teilen.
 
+## Seite 2: Bedarf in Deutschland
+
+`bedarf.html` rechnet hoch, wie viele Schnellladepunkte Deutschland für Pkw braucht:
+Pkw-Bestand (KBA, 1.1.2026) × Veränderung × E-Anteil × Fahrleistung × Verbrauch × Anteil Schnellladen
+÷ Energie je Ladepunkt ÷ Nähe zum Optimum. Die Energie je Ladepunkt kommt aus der Parkrechnung von Seite 1
+(`web/js/park.js`, gleiche URL-Parameter). Beide Seiten teilen sich die Adresszeile, Einstellungen bleiben beim
+Wechseln erhalten.
+
 ## Modell
 
 - **Kunden:** Lademenge und effektive Ladeleistung je Vorgang aus den OBELIS-Histogrammen der gewählten
@@ -75,6 +83,9 @@ web/js/model.js       Verteilungen, analytisches Modell, Hochrechnung
 web/js/sim.js         Ereignisdiskrete Simulation
 web/js/worker.js      Simulation im Hintergrund
 web/js/charts.js      SVG-Diagramme
-web/js/app.js         Oberfläche
+web/js/app.js         Oberfläche Seite 1
+web/bedarf.html       Seite 2: Bedarf in Deutschland
+web/js/bedarf.js      Oberfläche Seite 2
+web/js/park.js        Parkrechnung ohne Oberfläche (für Seite 2)
 pipeline/extract.py   Datenextrakt aus AuswertungMobilithek
 ```
