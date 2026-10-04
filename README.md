@@ -67,6 +67,16 @@ der NOW GmbH, CC BY 4.0). Neu erzeugen:
 python pipeline/extract.py --src ../AuswertungMobilithek/web/data/obelis.json
 ```
 
+Der Bestand an Schnellladepunkten auf Seite 2 kommt aus dem Ladesäulenregister der Bundesnetzagentur
+(Stand 1.9.2026). `web/data/ladesaeulen.json` ist eine Zusammenfassung (Leistungsklassen, Zubau je
+Inbetriebnahmejahr, Bundesländer). Neu erzeugen:
+
+```bash
+curl -L -o data/raw/ladesaeulen_2026-09-01.csv \
+  https://data.bundesnetzagentur.de/Bundesnetzagentur/DE/Fachthemen/ElektrizitaetundGas/E-Mobilitaet/Ladesaeulenregister_BNetzA_2026-09-01.csv
+python pipeline/bnetza.py --src data/raw/ladesaeulen_2026-09-01.csv
+```
+
 ## Veröffentlichen
 
 - **GitHub Pages:** `.github/workflows/pages.yml` veröffentlicht `web/` bei jedem Push auf `main`
@@ -88,4 +98,5 @@ web/bedarf.html       Seite 2: Bedarf in Deutschland
 web/js/bedarf.js      Oberfläche Seite 2
 web/js/park.js        Parkrechnung ohne Oberfläche (für Seite 2)
 pipeline/extract.py   Datenextrakt aus AuswertungMobilithek
+pipeline/bnetza.py    Zusammenfassung des Ladesäulenregisters
 ```

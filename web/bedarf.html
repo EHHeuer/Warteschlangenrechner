@@ -56,6 +56,14 @@
         </fieldset>
         <fieldset class="group">
           <legend>Ladepunkte</legend>
+          <div class="ctl">
+            <span class="ctl__label">Als Schnellladepunkt zählen</span>
+            <div class="seg" id="seg-ab" role="group" aria-label="Leistungsschwelle für den Bestand">
+              <button type="button" data-v="50">ab 50 kW</button>
+              <button type="button" data-v="150">ab 150 kW</button>
+              <button type="button" data-v="300">ab 300 kW</button>
+            </div>
+          </div>
           <div class="field" data-key="opt"></div>
           <p class="group__lede" id="park-info"></p>
           <p class="group__lede"><a id="park-link" href="index.html">Park auf Seite 1 ändern →</a></p>
@@ -72,6 +80,8 @@
         </header>
         <p class="summary" id="summary"></p>
         <div class="kpis" id="kpis"></div>
+        <p class="kpis__caption">Bestand heute (Bundesnetzagentur)</p>
+        <div class="kpis kpis--lp" id="kpis-have"></div>
         <p class="note" id="compare"></p>
       </section>
 
@@ -84,9 +94,22 @@
         <ol class="steps" id="steps"></ol>
       </section>
 
-      <section class="block" id="empfindlichkeit">
+      <section class="block" id="bestand">
         <header class="block__head">
           <span class="block__no">03</span>
+          <h2>Wo stehen wir?</h2>
+          <p class="block__lede">Bestand an Schnellladepunkten laut Ladesäulenregister, aufsummiert nach Inbetriebnahmejahr, gegen den berechneten Bedarf.</p>
+        </header>
+        <figure class="card">
+          <figcaption class="card__title">Bestand und Bedarf</figcaption>
+          <div id="ch-have" class="chart-box"></div>
+          <p class="note" id="have-note"></p>
+        </figure>
+      </section>
+
+      <section class="block" id="empfindlichkeit">
+        <header class="block__head">
+          <span class="block__no">04</span>
           <h2>Die zwei großen Hebel</h2>
           <p class="block__lede">Am unsichersten sind der Anteil des Schnellladens am Ladestrom und wie nah die Ladepunkte im Mittel an ihrer Grenze laufen. Beide verändern das Ergebnis direkt.</p>
         </header>
@@ -104,7 +127,7 @@
 
       <section class="block block--prose" id="methodik">
         <header class="block__head">
-          <span class="block__no">04</span>
+          <span class="block__no">05</span>
           <h2>Annahmen und Quellen</h2>
         </header>
         <div class="prose">
@@ -114,7 +137,7 @@
             <li><b>Verbrauch</b> und <b>Schnellladeanteil</b> sind Annahmen. Der Verbrauch gilt ab Ladepunkt, also inklusive Ladeverlusten.</li>
             <li><b>Energie je Ladepunkt</b> kommt aus Seite 1: Dort wird ein Park bis an die Churn-Grenze ausgelastet und über Wochenrhythmus und Saison auf das Jahr gerechnet. Die Nähe zum Optimum teilt diesen Wert. Alle Ladepunkte sind dabei gleich groß und gleich ausgelastet gedacht. In Wirklichkeit gibt es stark und schwach genutzte Standorte.</li>
             <li><b>Nicht enthalten:</b> leichte und schwere Nutzfahrzeuge, ausländische Fahrzeuge, regionale Verteilung, Abdeckungsziele (Ladepunkte, die für die Erreichbarkeit nötig sind, auch wenn sie wenig ausgelastet sind).</li>
-            <li>Zum Vergleich wird die Zahl der in OBELIS meldenden, geförderten DC-Ladepunkte über 50 kW gezeigt (NOW GmbH, CC BY 4.0). Das ist eine Untergrenze, nicht der Gesamtbestand.</li>
+            <li><b>Bestand:</b> <a href="https://data.bundesnetzagentur.de/Bundesnetzagentur/DE/Fachthemen/ElektrizitaetundGas/E-Mobilitaet/Ladesaeulenregister_BNetzA_2026-09-01.csv" target="_blank" rel="noopener">Bundesnetzagentur, Ladesäulenregister, Stand 1. September 2026</a>. Je Ladepunkt zählt die höchste Steckerleistung. Laut Bundesnetzagentur enthält die Liste nur Betreiber mit abgeschlossenem Anzeigeverfahren, der tatsächliche Bestand ist größer. Die Leistungsklassen sind nicht gleichwertig: Ein 150-kW-Ladepunkt gibt im Mittel weniger Energie ab als der Park auf Seite 1, wenn dieser mit 300 kW rechnet.</li>
           </ul>
         </div>
       </section>

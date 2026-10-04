@@ -31,7 +31,8 @@ const HINTS = {
 };
 const KEYS = Object.keys(FIELDS);
 const S = {};
-let D, park, P;
+let D, park, P, L;
+S.ab = '150';
 
 function readUrl() {
   const p = new URLSearchParams(location.search);
@@ -39,10 +40,12 @@ function readUrl() {
     const v = p.has(k) ? +p.get(k) : f.def;
     S[k] = Number.isFinite(v) ? Math.max(f.min, Math.min(f.max, v)) : f.def;
   }
+  if (['50', '150', '300'].includes(p.get('ab'))) S.ab = p.get('ab');
 }
 function writeUrl() {
   const p = new URLSearchParams(location.search);
   for (const k of KEYS) p.set(k, S[k]);
+  p.set('ab', S.ab);
   history.replaceState(null, '', `?${p}`);
   // Zurück zu Seite 1 mit deren Parametern (und unseren, damit sie erhalten bleiben)
   document.querySelectorAll('[data-page="park"]').forEach(a => { a.href = `index.html?${p}`; });
@@ -63,7 +66,8 @@ function buildFields() {
   // Marken für Ist-Werte
   mark('ea', BASE.bev / BASE.pkw);
   mark('km', BASE.kmKba);
-  $('#reset').addEventListener('click', () => { for (const [k, f] of Object.entries(FIELDS)) S[k] = f.def; sync(); render(); });
+  $('#reset').addEventListener('click', () => { for (const [k, f] of Object.entries(FIELDS)) S[k] = f.def; S.ab = '150'; sync(); render(); });
+  $('#seg-ab').addEventListener('click', e => { const b = e.target.closest('button'); if (!b) return; S.ab = b.dataset.v; sync(); render(); });
 }
 function mark(k, v) {
   const inp = $(`#in-${k}`), f = FIELDS[k];
@@ -78,6 +82,7 @@ function sync() {
     const t = (S[k] - f.min) / (f.max - f.min);
     inp.closest('.field').querySelector('.range__fill').style.width = `${Math.max(0, Math.min(1, t)) * 100}%`;
   }
+  document.querySelectorAll('#seg-ab button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === S.ab)));
   writeUrl();
 }
 
@@ -99,14 +104,44 @@ function render() {
   const r = calc();
   // Ergebnis
   $('#summary').innerHTML = `${fmt.n(r.epkw / 1e6, 1)} Mio. E-Pkw laden im Jahr <b>${twh(r.kwh)}</b>. Kommen ${fmt.pct(S.sl, 0)} davon aus Schnellladen, sind das <b>${twh(r.fast)}</b>. Dafür braucht Deutschland rund <b>${fmt.n(Math.round(r.lp / 100) * 100)} Schnellladepunkte</b> bei ${fmt.pct(S.opt, 0)} Nähe zum Optimum, am Optimum wären es ${fmt.n(Math.round(r.lpOpt / 100) * 100)}.`;
-  const obelis = D.classes.filter(c => c.id >= 4).reduce((a, c) => a + (c.years[park.dataYear]?.lps || 0), 0);
+  const have = L.ab[S.ab];
+  const lastFull = String(+L.stand.slice(-4) - 1);
+  const pace = L.years[lastFull]?.[S.ab] || 0;
+  const gap = r.lp - have;
   $('#kpis').innerHTML = [
     kpi('Schnellladepunkte', fmt.n(Math.round(r.lp / 100) * 100), '', `Am Optimum: ${fmt.n(Math.round(r.lpOpt / 100) * 100)}`),
     kpi('Schnellladestrom', fmt.n(r.fast / 1e9, 1), 'TWh/Jahr', `von ${twh(r.kwh)} Ladestrom der E-Pkw`),
     kpi('E-Pkw je Schnellladepunkt', fmt.n(r.epkw / r.lp, 0), '', `${fmt.n(r.lp / r.epkw * 1000, 2)} Ladepunkte je 1.000 E-Pkw`),
     kpi(`Parks à ${P.c} Ladepunkte`, fmt.n(Math.round(r.parks / 10) * 10), '', `Je Ladepunkt ${fmt.n(r.perLp / 1000, 0)} MWh im Jahr`),
   ].join('');
-  $('#compare').innerHTML = `Zum Vergleich: In OBELIS haben ${park.dataYear} <b>${fmt.n(obelis)}</b> geförderte DC-Ladepunkte über 50 kW Ladevorgänge gemeldet. Das ist nur ein Ausschnitt; der Gesamtbestand steht im Ladesäulenregister der Bundesnetzagentur.`;
+  $('#kpis-have').innerHTML = [
+    kpi(`Bestand ab ${S.ab} kW`, fmt.n(have), '', `Ladesäulenregister, Stand ${L.stand}`),
+    kpi('Ausbaugrad', fmt.pct(have / r.lp, 0), '', `vom Bedarf · am Optimum ${fmt.pct(have / r.lpOpt, 0)}`),
+    kpi(gap > 0 ? 'Fehlen noch' : 'Überdeckung', fmt.n(Math.abs(Math.round(gap / 100) * 100)), '', gap > 0 ? `Ladepunkte ab ${S.ab} kW` : 'mehr als der Bedarf'),
+    kpi(`Zubau ${lastFull}`, fmt.n(pace), '', gap > 0 && pace > 0 ? `In diesem Tempo noch <b>${fmt.n(gap / pace, 1)} Jahre</b>` : 'Ladepunkte im Jahr'),
+  ].join('');
+  $('#compare').innerHTML = `Nur Betreiber mit abgeschlossenem Anzeigeverfahren sind im Register, der tatsächliche Bestand ist etwas größer. Ein Ladepunkt zählt mit der höchsten Steckerleistung. Die Energie je Ladepunkt stammt aus dem Park von Seite 1 (${fmt.n(P.plp)} kW je Ladepunkt).`;
+
+  // Wo stehen wir: Bestand kumuliert nach Inbetriebnahmejahr
+  const yrs = Object.keys(L.years).filter(y => /^\d{4}$/.test(y) && +y >= 2016).sort();
+  let acc = Object.entries(L.years).filter(([y]) => !/^\d{4}$/.test(y) || +y < 2016).reduce((a, [, v]) => a + v[S.ab], 0);
+  const cum = yrs.map(y => (acc += L.years[y][S.ab]));
+  const s1c = css('--s1');
+  plot($('#ch-have'), {
+    height: 270, aria: 'Bestand an Schnellladepunkten nach Jahr und Bedarf', margin: { l: 52 },
+    x: { domain: [0, yrs.length], band: yrs.length, ticks: yrs.map((y, i) => ({ i, label: y === L.stand.slice(-4) ? `${y}*` : y })) },
+    y: { domain: [0, Math.max(r.lp, cum[cum.length - 1]) * 1.12], fmt: v => fmt.n(v / 1000), label: 'Tsd. Ladepunkte' },
+    layers: [
+      { type: 'bars', data: cum, color: s1c, gap: 8, radius: 3 },
+      { type: 'hline', y: r.lp, label: `Bedarf ${fmt.n(Math.round(r.lp / 100) * 100)}` },
+      { type: 'hline', y: r.lpOpt, label: `am Optimum ${fmt.n(Math.round(r.lpOpt / 100) * 100)}`, below: true },
+    ],
+    tip: { html: i => `<div class="head">Ende ${yrs[i]}${yrs[i] === L.stand.slice(-4) ? ` (Stand ${L.stand})` : ''}</div>
+      <div class="row"><span>Bestand ab ${S.ab} kW</span><b>${fmt.n(cum[i])}</b></div>
+      <div class="row"><span>Zubau im Jahr</span><b>${fmt.n(L.years[yrs[i]][S.ab])}</b></div>
+      <div class="row"><span>Anteil am Bedarf</span><b>${fmt.pct(cum[i] / r.lp, 0)}</b></div>` },
+  });
+  $('#have-note').textContent = `* ${L.stand.slice(-4)} bis ${L.stand}. Gezählt sind Ladepunkte, die heute im Register stehen, nach ihrem Inbetriebnahmedatum; stillgelegte Ladepunkte fehlen in früheren Jahren.`;
 
   // Rechenweg
   const lpR = v => fmt.n(Math.round(v / 100) * 100);
@@ -185,7 +220,7 @@ function theme() {
 
 async function main() {
   theme();
-  D = await (await fetch('data/ladeprofil.json')).json();
+  [D, L] = await Promise.all([fetch('data/ladeprofil.json').then(r => r.json()), fetch('data/ladesaeulen.json').then(r => r.json())]);
   P = readPark(D, location.search);
   park = parkYear(D, P);
   readUrl();
