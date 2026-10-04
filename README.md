@@ -84,6 +84,9 @@ python pipeline/bnetza.py --src data/raw/ladesaeulen_2026-09-01.csv
 - **GitLab Pages:** `.gitlab-ci.yml` veröffentlicht `web/` aus dem Default-Branch, falls das Repo auf
   GitLab gespiegelt wird.
 
+Vor dem Veröffentlichen `python pipeline/bump_version.py` ausführen. Das hängt eine Versionskennung an alle
+lokalen Verweise, damit Browser nach einem Update keine alten Skripte aus dem Cache mit neuen Seiten mischen.
+
 ## Struktur
 
 ```

@@ -1,7 +1,7 @@
 // Seite 2: Bedarf an Schnellladepunkten in Deutschland.
 // Energie je Ladepunkt kommt aus der Parkrechnung von Seite 1 (gleiche URL-Parameter).
-import { plot, fmt } from './charts.js';
-import { readPark, parkYear, PARK_KEYS } from './park.js';
+import { plot, fmt } from './charts.js?v=202610040744';
+import { readPark, parkYear, PARK_KEYS } from './park.js?v=202610040744';
 
 const $ = s => document.querySelector(s);
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
@@ -220,7 +220,7 @@ function theme() {
 
 async function main() {
   theme();
-  [D, L] = await Promise.all([fetch('data/ladeprofil.json').then(r => r.json()), fetch('data/ladesaeulen.json').then(r => r.json())]);
+  [D, L] = await Promise.all([fetch('data/ladeprofil.json?v=202610040744').then(r => r.json()), fetch('data/ladesaeulen.json?v=202610040744').then(r => r.json())]);
   P = readPark(D, location.search);
   park = parkYear(D, P);
   readUrl();

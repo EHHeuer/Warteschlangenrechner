@@ -1,6 +1,6 @@
 // Parkergebnis ohne Oberfläche: dieselbe Rechnung wie Seite 1 (Ergebnis, Jahr), für Seite 2.
 // Eingaben sind die URL-Parameter von Seite 1; fehlende Werte bekommen dieselben Startwerte.
-import * as M from './model.js';
+import * as M from './model.js?v=202610040744';
 
 export const PARK_DEFAULTS = {
   c: 8, plp: 300, ppark: 1500, A: 0.98, setup: 1.5, pmin: 40, ca: 1, T: 10, alpha: 0.05,

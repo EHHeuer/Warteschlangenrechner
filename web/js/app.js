@@ -1,6 +1,6 @@
-import * as M from './model.js';
-import { Park, STATE, rng } from './sim.js';
-import { plot, heatmap, rampN, fmt, niceTicks, showTip, hideTip } from './charts.js';
+import * as M from './model.js?v=202610040744';
+import { Park, STATE, rng } from './sim.js?v=202610040744';
+import { plot, heatmap, rampN, fmt, niceTicks, showTip, hideTip } from './charts.js?v=202610040744';
 
 const DAYS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
 const DAYS_LONG = ['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'];
@@ -678,7 +678,7 @@ function simBase() {
 }
 function runSim() {
   if (worker) worker.terminate();
-  try { worker = new Worker('js/worker.js', { type: 'module' }); }
+  try { worker = new Worker('js/worker.js?v=202610040744', { type: 'module' }); }
   catch { $('#sim-note').textContent = 'Simulation in diesem Browser nicht verfügbar.'; return; }
   const id = ++jobId;
   const base = simBase();
@@ -931,7 +931,7 @@ function navSpy() {
 // ---------- Start
 async function main() {
   theme();
-  D = await (await fetch('data/ladeprofil.json')).json();
+  D = await (await fetch('data/ladeprofil.json?v=202610040744')).json();
   setDefaults();
   readUrl();
   buildFields();

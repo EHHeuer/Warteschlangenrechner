@@ -1,5 +1,5 @@
 // Simulation im Hintergrund: Gegenprobe zur Analytik.
-import { Park } from './sim.js';
+import { Park } from './sim.js?v=202610040744';
 
 let job = 0;
 

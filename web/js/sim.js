@@ -1,7 +1,7 @@
 // Ereignisdiskrete Simulation eines Schnellladeparks.
 // Fahrzeuge kommen an, laden mit Water-Filling unter dem Netzanschluss, belegen danach den
 // Ladepunkt für die Wechselzeit. Wer länger als T wartet, fährt weiter (Churn).
-import { phi, q } from './model.js';
+import { phi, q } from './model.js?v=202610040744';
 
 export function rng(seed) {
   let a = seed >>> 0;
